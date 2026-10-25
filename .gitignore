@@ -2,6 +2,11 @@
 SCIENCE_ROHIT_8 (1) .xlsx
 paper_*_meta.json
 
+# Internal write-ups / comms (kept local, not hosted)
+*.docx
+Message_for_Leadership.md
+Team_Message.md
+
 # Regenerable screenshots (already embedded in the .docx)
 ss/
 
