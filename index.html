@@ -833,7 +833,7 @@ function renderOverview(pg){
   const nStu=stuTotal.length, totalMax=stuTotal[0]?.totalMax||0;
   const avgPct=stuTotal.reduce((a,s)=>a+s.totalPct,0)/nStu;
   const topScore=Math.max(...stuTotal.map(s=>s.totalScored));
-  const passN=stuTotal.filter(s=>s.totalPct>passMark()).length;
+  const passN=stuTotal.filter(s=>s.totalPct>=passMark()).length;
   const totalRecords=FILTERED.length;
   const nQuestions = qStats.length;   // dynamic question count
 
@@ -1009,7 +1009,7 @@ function renderSections(pg){
   plot("se1",[{x:secs,y:sAvg,type:"bar",marker:{color:secs.map(secColor)}}],{yaxis:{title:"Avg %",range:[0,100]},showlegend:false});
   plot("se2",secs.map(s=>({x:comps,y:comps.map(c=>{const a=stuComp.filter(x=>x.section===s&&x.competencyFull===c);
     return a.length?a.reduce((p,x)=>p+x.pct,0)/a.length:0;}),type:"bar",name:s,marker:{color:secColor(s)}})),{barmode:"group",yaxis:{title:"Avg %",range:[0,100]}});
-  const pr=secs.map(s=>{const a=stuTotal.filter(t=>t.section===s);return a.length?a.filter(t=>t.totalPct>passMark()).length/a.length*100:0;});
+  const pr=secs.map(s=>{const a=stuTotal.filter(t=>t.section===s);return a.length?a.filter(t=>t.totalPct>=passMark()).length/a.length*100:0;});
   plot("se9",[{x:secs,y:pr,type:"bar",marker:{color:secs.map(secColor)}}],{yaxis:{title:"Pass %",range:[0,100]},showlegend:false});
 }
 
@@ -1064,8 +1064,12 @@ function renderBands(pg){
   secs.forEach(s=>{
     const ex=BAND_SUMMARY[s]||[];
     ex.forEach((b,i)=>{
-      const comp=counts[s]?(counts[s][b.name]||0):0;
-      html+=`<tr><td>${s}</td><td style="color:${BAND_COLOR[b.name]||''}">${b.name}</td><td>${b.pctRange}</td><td>${b.marksRange}</td><td>${b.count}</td><td>${comp}</td></tr>`;
+      // Excel stores band names lowercase ("need improvement"); map them
+      // case-insensitively to the canonical BAND_ORDER names so computed
+      // counts and colours line up.
+      const bname = BAND_ORDER.find(x=>x.toLowerCase()===String(b.name).toLowerCase()) || b.name;
+      const comp=counts[s]?(counts[s][bname]||0):0;
+      html+=`<tr><td>${s}</td><td style="color:${BAND_COLOR[bname]||''}">${b.name}</td><td>${b.pctRange}</td><td>${b.marksRange}</td><td>${b.count}</td><td>${comp}</td></tr>`;
     });
   });
   html+=`</table>`;
