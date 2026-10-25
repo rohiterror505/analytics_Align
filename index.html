@@ -1291,42 +1291,92 @@ function buildSQLText(selectedSections, overwrite){
 // marks per question vs max, and a per-question detail table.
 function renderStudent(pg){
   const ranked=[...stuTotal].sort((a,b)=>b.totalPct-a.totalPct);
-  const opts = ranked.map((s,i)=>{
-    const k=s.section+"|"+s.studentId;
-    return `<option value="${k}" ${selStudent===k?'selected':''}>${s.section}-${s.studentId} — ${s.totalPct.toFixed(1)}% (rank ${i+1})</option>`;
-  }).join("");
+  const rankedKeys = ranked.map((s,i)=>({...s, key:s.section+"|"+s.studentId, rank:i+1,
+    label:`${s.section}-${s.studentId}`, pct:s.totalPct}));
   pg.innerHTML=`
     <div class="tabintro"><b>Student view.</b> Pick any student to see their personal breakdown — total, rank, band, how they did in each competency and each question, and how they compare to the class average.</div>
     <div class="card full" style="margin-bottom:16px">
       <h3>Choose a student</h3>
-      <div class="cap">Search by section-id (e.g. <b>A-14</b>) or by rank. The breakdown below updates instantly.</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <input id="stuSearch" placeholder="Search: A-14 or 14 or rank 1"
-          style="flex:1;min-width:200px;max-width:340px;background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px" />
-        <select id="selStu"
-          style="flex:1;min-width:240px;max-width:440px;background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px">
-          <option value="">— Select a student —</option>${opts}
-        </select>
+      <div class="cap">Type a student id, section-id, or rank — e.g. <b>A-14</b>, <b>14</b>, or <b>rank 1</b>. Click a result to open it.</div>
+      <div style="position:relative;margin-top:12px;max-width:520px">
+        <input id="stuSearch" autocomplete="off" placeholder="Type to search any student..."
+          style="width:100%;background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:11px 14px;font-size:14px" />
+        <div id="stuResults" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto"></div>
+        <div id="stuPicked" style="margin-top:10px;display:none;align-items:center;gap:10px;flex-wrap:wrap"></div>
       </div>
     </div>
     <div id="stuView"></div>`;
 
-  const sel=document.getElementById("selStu");
   const search=document.getElementById("stuSearch");
-  // Search filters the dropdown options (by text) as you type.
-  search.addEventListener("input",()=>{
-    const q=search.value.trim().toLowerCase();
-    [...sel.options].forEach(o=>{
-      if(!o.value) return;
-      o.hidden = q && !o.text.toLowerCase().includes(q);
+  const results=document.getElementById("stuResults");
+  const picked=document.getElementById("stuPicked");
+
+  function showResults(q){
+    q=q.trim().toLowerCase();
+    let list=rankedKeys;
+    if(q){
+      const rankMatch=q.match(/rank\s*#?\s*(\d+)/);
+      const rankN=rankMatch?+rankMatch[1]:null;
+      list=rankedKeys.filter(s=>{
+        if(s.label.toLowerCase().includes(q)) return true;
+        if(String(s.studentId)===q) return true;
+        if(String(s.studentId).includes(q)) return true;
+        if(s.section.toLowerCase()===q) return true;
+        if(rankN!=null && s.rank===rankN) return true;
+        if(q.startsWith("rank") && String(s.rank).includes(q.replace(/^rank\s*#?\s*/,""))) return true;
+        return false;
+      });
+    }
+    if(!list.length){
+      results.innerHTML=`<div style="color:var(--muted);font-size:12.5px;padding:8px 4px">No students match "${q}".</div>`;
+      return;
+    }
+    results.innerHTML=list.slice(0,30).map(s=>
+      `<button class="sturow" data-k="${s.key}" style="text-align:left;background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:9px 12px;cursor:pointer;font-size:13px;display:flex;gap:12px;align-items:center;transition:border-color .15s,background .15s"
+        onmouseenter="this.style.borderColor='var(--accent)';this.style.background='var(--accent-soft)'"
+        onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--panel2)'">
+        <span style="font-weight:800;color:#fff;min-width:64px">${s.label}</span>
+        <span style="color:var(--muted)">rank #${s.rank}</span>
+        <span style="margin-left:auto;font-weight:700;color:${BAND_COLOR[s.band]||'#9cc0ff'}">${s.pct.toFixed(1)}%</span>
+      </button>`).join("");
+    results.querySelectorAll(".sturow").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        selStudent=btn.dataset.k;
+        search.value="";
+        results.innerHTML="";
+        showPicked();
+        renderStudentView(document.getElementById("stuView"));
+      });
     });
+  }
+  function showPicked(){
+    if(!selStudent){ picked.style.display="none"; picked.innerHTML=""; return; }
+    const [sec,sid]=selStudent.split("|");
+    const s=rankedKeys.find(x=>x.key===selStudent);
+    picked.style.display="flex";
+    picked.innerHTML=`<span style="font-size:13px;color:var(--muted)">Viewing:</span>
+      <b style="color:#fff;font-size:14px">${sec}-${sid}</b>
+      ${s?`<span style="color:var(--muted);font-size:12px">rank #${s.rank} · ${s.pct.toFixed(1)}% · ${s.band}</span>`:""}
+      <button id="stuClear" style="margin-left:6px;background:var(--panel3);color:var(--txt);border:1px solid var(--border);border-radius:7px;padding:5px 12px;font-size:12px;cursor:pointer">Clear</button>`;
+    document.getElementById("stuClear").addEventListener("click",()=>{
+      selStudent=null;
+      showPicked();
+      renderStudentView(document.getElementById("stuView"));
+      search.focus();
+    });
+  }
+
+  search.addEventListener("input",()=>showResults(search.value));
+  search.addEventListener("keydown",(e)=>{
+    if(e.key==="Enter"){
+      const first=results.querySelector(".sturow");
+      if(first){ first.click(); e.preventDefault(); }
+    }
   });
-  sel.addEventListener("change",()=>{
-    selStudent = sel.value || null;
-    renderStudentView(document.getElementById("stuView"));
-  });
-  if(selStudent) renderStudentView(document.getElementById("stuView"));
-  else renderStudentView(document.getElementById("stuView"));
+  // Start with everyone listed (scroll to find) so it's obvious it works.
+  showResults("");
+  showPicked();
+  renderStudentView(document.getElementById("stuView"));
 }
 
 // Render the chosen student's KPIs + charts + table into #stuView.
