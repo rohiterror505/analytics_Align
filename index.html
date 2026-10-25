@@ -901,7 +901,7 @@ function renderOverview(pg){
   const nStu=stuTotal.length, totalMax=stuTotal[0]?.totalMax||0;
   const avgPct=stuTotal.reduce((a,s)=>a+s.totalPct,0)/nStu;
   const topScore=Math.max(...stuTotal.map(s=>s.totalScored));
-  const passN=stuTotal.filter(s=>s.totalPct>=passMark()).length;
+  const passN=stuTotal.filter(s=>s.totalPct>passMark()).length;
   const totalRecords=FILTERED.length;
   const nQuestions = qStats.length;   // dynamic question count
 
@@ -1077,7 +1077,7 @@ function renderSections(pg){
   plot("se1",[{x:secs,y:sAvg,type:"bar",marker:{color:secs.map(secColor)}}],{yaxis:{title:"Avg %",range:[0,100]},showlegend:false});
   plot("se2",secs.map(s=>({x:comps,y:comps.map(c=>{const a=stuComp.filter(x=>x.section===s&&x.competencyFull===c);
     return a.length?a.reduce((p,x)=>p+x.pct,0)/a.length:0;}),type:"bar",name:s,marker:{color:secColor(s)}})),{barmode:"group",yaxis:{title:"Avg %",range:[0,100]}});
-  const pr=secs.map(s=>{const a=stuTotal.filter(t=>t.section===s);return a.length?a.filter(t=>t.totalPct>=passMark()).length/a.length*100:0;});
+  const pr=secs.map(s=>{const a=stuTotal.filter(t=>t.section===s);return a.length?a.filter(t=>t.totalPct>passMark()).length/a.length*100:0;});
   plot("se9",[{x:secs,y:pr,type:"bar",marker:{color:secs.map(secColor)}}],{yaxis:{title:"Pass %",range:[0,100]},showlegend:false});
 }
 
