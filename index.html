@@ -808,21 +808,19 @@ function plot(id,data,layout,config){
     paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
     margin:{l:50,r:20,t:20,b:40}}, layout);
   const C = Object.assign({responsive:true, displaylogo:false}, config||{});
-  // "Rest" state: every numeric series (y / values) starts at 0, so when we
-  // animate to the real data the graph visibly RISES from the bottom upward
-  // like a moving chart. Histograms (x-based) get a fade-in instead.
+  // Rest state: numeric y series start at 0 so bar/line graphs visibly RISE
+  // from the bottom when we animate up to the real values. Pie and histogram
+  // (which have no y array) render directly in the rest state.
   const rest = data.map(tr => {
     const c = Object.assign({}, tr);
-    if (Array.isArray(tr.y))      c.y      = tr.y.map(() => 0);
-    if (Array.isArray(tr.values)) c.values = tr.values.map(() => 0);
-    if (tr.type === "histogram")  c.opacity = 0;
+    if (Array.isArray(tr.y)) c.y = tr.y.map(() => 0);
     return c;
   });
   Plotly.react(id, rest, L, C);
   Plotly.animate(id,
     { data: data, traces: data.map((_, i) => i) },
     { transition: { duration: 1100, easing: "cubic-in-out" },
-      frame:     { duration: 1100, redraw: false } });
+      frame:     { duration: 1100 } });
 }
 // compColor() picks a colour for a competency (pretty name); falls back to the
 // rotating palette for any competency not in the default map (so new codes work).
