@@ -107,23 +107,42 @@
      TAB PAGES + ENTRANCE ANIMATIONS
      ================================================== */
   .tabpage { display:none; }
-  .tabpage.active { display:block; animation:slideIn .55s cubic-bezier(.2,.7,.3,1) both; }
+  .tabpage.active { display:block; animation:slideIn .6s cubic-bezier(.2,.7,.3,1) both; }
   @keyframes slideIn {
-    from { opacity:0; transform:translateX(40px) scale(.98); }
-    to   { opacity:1; transform:translateX(0)   scale(1); }
+    from { opacity:0; transform:translateY(48px) scale(.98); }
+    to   { opacity:1; transform:translateY(0)    scale(1); }
   }
-  /* Cards cascade in one-by-one when a tab opens. */
-  .tabpage.active .card { animation:cardIn .5s cubic-bezier(.2,.7,.3,1) both; }
+  /* KPI cards slide down from above. */
+  .tabpage.active .kpis .kpi { animation:slideDown .55s cubic-bezier(.2,.7,.3,1) both; }
+  .tabpage.active .kpis .kpi:nth-child(1){ animation-delay:.02s; }
+  .tabpage.active .kpis .kpi:nth-child(2){ animation-delay:.07s; }
+  .tabpage.active .kpis .kpi:nth-child(3){ animation-delay:.12s; }
+  .tabpage.active .kpis .kpi:nth-child(4){ animation-delay:.17s; }
+  .tabpage.active .kpis .kpi:nth-child(5){ animation-delay:.22s; }
+  .tabpage.active .kpis .kpi:nth-child(6){ animation-delay:.27s; }
+  @keyframes slideDown {
+    from { opacity:0; transform:translateY(-40px) scale(.96); }
+    to   { opacity:1; transform:translateY(0)    scale(1); }
+  }
+  /* Graph cards cascade up from below one-by-one when a tab opens or a filter changes. */
+  .tabpage.active .card { animation:cardIn .65s cubic-bezier(.2,.7,.3,1) both; }
   .tabpage.active .card:nth-child(1){ animation-delay:.05s; }
-  .tabpage.active .card:nth-child(2){ animation-delay:.13s; }
-  .tabpage.active .card:nth-child(3){ animation-delay:.21s; }
-  .tabpage.active .card:nth-child(4){ animation-delay:.29s; }
-  .tabpage.active .card:nth-child(5){ animation-delay:.37s; }
-  .tabpage.active .card:nth-child(6){ animation-delay:.45s; }
-  .tabpage.active .card:nth-child(n+7){ animation-delay:.5s; }
+  .tabpage.active .card:nth-child(2){ animation-delay:.15s; }
+  .tabpage.active .card:nth-child(3){ animation-delay:.25s; }
+  .tabpage.active .card:nth-child(4){ animation-delay:.35s; }
+  .tabpage.active .card:nth-child(5){ animation-delay:.45s; }
+  .tabpage.active .card:nth-child(6){ animation-delay:.55s; }
+  .tabpage.active .card:nth-child(n+7){ animation-delay:.6s; }
   @keyframes cardIn {
-    from { opacity:0; transform:translateY(22px) scale(.96); }
-    to   { opacity:1; transform:translateY(0)   scale(1); }
+    0%   { opacity:0; transform:translateY(60px) scale(.94); }
+    60%  { opacity:1; transform:translateY(-8px)  scale(1.01); }
+    100% { opacity:1; transform:translateY(0)     scale(1); }
+  }
+  /* The chart canvas itself slides in slightly after its card. */
+  .tabpage.active .chart { animation:chartIn .7s .2s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes chartIn {
+    from { opacity:0; transform:translateY(28px); }
+    to   { opacity:1; transform:translateY(0); }
   }
 
   /* ==================================================
@@ -765,6 +784,10 @@ function render(){
 function showPage(){
   TABS.forEach(([id])=>document.getElementById("pg-"+id).classList.remove("active"));
   const pg=document.getElementById("pg-"+curTab);
+  pg.classList.remove("active");
+  // Force a reflow so re-adding .active re-triggers the slide animations
+  // even when only a filter changed (same tab).
+  void pg.offsetWidth;
   pg.classList.add("active");
   const fn = {overview:renderOverview, comp:renderComp, questions:renderQuestions,
     students:renderStudents, sections:renderSections, bands:renderBands, sql:renderSQL};
@@ -785,7 +808,7 @@ function plot(id,data,layout,config){
     paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
     margin:{l:50,r:20,t:20,b:40},
     // Smooth animation whenever data changes (filters / tab switches) - makes charts feel interactive.
-    transition:{duration:650, easing:"cubic-in-out"}},
+    transition:{duration:800, easing:"cubic-in-out"}},
     layout),
     Object.assign({responsive:true, displaylogo:false}, config||{}));
 }
