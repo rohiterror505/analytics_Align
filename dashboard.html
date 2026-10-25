@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Exam Analytics Dashboard</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  /* ==================================================
+     DESIGN TOKENS
+     ================================================== */
+  :root {
+    --bg:#0a0f1c; --panel:#141d33; --panel2:#1b253f; --panel3:#222f50;
+    --txt:#eaf0fb; --muted:#8ea0c0; --dim:#5d6f8f;
+    --accent:#4c9aff; --accent2:#7c5cff; --accent-soft:rgba(76,154,255,.14);
+    --good:#54a24b; --warn:#f58518; --bad:#e45756; --purple:#b279a2;
+    --border:#283a5c; --border-soft:rgba(76,154,255,.18);
+    --glow:0 8px 30px rgba(76,154,255,.35);
+    --radius:14px; --radius-sm:10px;
+  }
+  * { box-sizing:border-box; }
+  html { scrollbar-width:thin; scrollbar-color:var(--accent) transparent; }
+  body { margin:0; font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+    color:var(--txt);
+    background:
+      radial-gradient(1100px 700px at 12% -8%, rgba(76,154,255,.10), transparent 60%),
+      radial-gradient(900px 600px at 92% 4%, rgba(245,133,24,.07), transparent 60%),
+      linear-gradient(160deg, #080d18 0%, #0c1426 60%, #0a1120 100%);
+    background-attachment:fixed;
+  }
+  /* themed thin scrollbar */
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:linear-gradient(var(--accent),var(--accent2));
+    border-radius:99px; border:2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background:var(--accent2); }
+
+  /* ==================================================
+     HEADER
+     ================================================== */
+  header { position:sticky; top:0; z-index:10;
+    background:linear-gradient(180deg, rgba(20,29,51,.96), rgba(20,29,51,.82));
+    backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--border);
+    padding:14px 22px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    box-shadow:0 6px 24px rgba(0,0,0,.35); }
+  header h1 { font-size:18px; margin:0; font-weight:700; letter-spacing:.2px;
+    background:linear-gradient(90deg,#fff,#9cc0ff); -webkit-background-clip:text;
+    background-clip:text; -webkit-text-fill-color:transparent;
+    animation:titleGlow 4s ease-in-out infinite; }
+  @keyframes titleGlow { 0%,100%{filter:drop-shadow(0 0 6px rgba(76,154,255,.4));} 50%{filter:drop-shadow(0 0 10px rgba(76,154,255,.7));} }
+  header .sub { color:var(--muted); font-size:13px; }
+  .filewrap { margin-left:auto; display:flex; align-items:center; gap:12px; }
+  .filewrap label { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff;
+    padding:9px 18px; border-radius:10px; cursor:pointer; font-size:13px; font-weight:700;
+    box-shadow:var(--glow); transition:transform .2s ease, box-shadow .2s ease, position:relative; overflow:hidden; }
+  .filewrap label:hover { transform:translateY(-2px); box-shadow:0 14px 40px rgba(76,154,255,.55); }
+  .filewrap label:active { transform:translateY(0); }
+  .filewrap label::after { content:""; position:absolute; inset:0;
+    background:linear-gradient(120deg,transparent,rgba(255,255,255,.25),transparent);
+    transform:translateX(-100%); transition:transform .6s ease; }
+  .filewrap label:hover::after { transform:translateX(100%); }
+  .filewrap input[type=file]{ display:none; }
+  .filename { color:var(--muted); font-size:12px; }
+
+  /* ==================================================
+     LAYOUT + SIDEBAR
+     ================================================== */
+  .hidden { display:none !important; }
+  .layout { display:flex; min-height:calc(100vh - 64px); }
+  aside { width:248px; flex-shrink:0;
+    background:linear-gradient(180deg, rgba(20,29,51,.96), rgba(18,25,45,.92));
+    backdrop-filter:blur(10px);
+    border-right:1px solid var(--border); padding:20px 16px 24px;
+    box-shadow:6px 0 24px rgba(0,0,0,.25); }
+  aside h3 { font-size:11px; text-transform:uppercase; color:var(--dim);
+    margin:20px 0 10px; letter-spacing:.8px;
+    display:flex; align-items:center; gap:8px; }
+  aside h3::before { content:""; width:14px; height:2px; border-radius:2px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2)); }
+  aside .chk { display:flex; flex-direction:column; gap:8px; }
+  aside > label { font-size:13px; display:flex; align-items:center; gap:9px; cursor:pointer;
+    padding:6px 8px; border-radius:8px; transition:background .18s ease; }
+  aside > label:hover { background:var(--accent-soft); }
+  aside input[type=checkbox]{ accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+  aside input[type=range]{ width:100%; accent-color:var(--accent); cursor:pointer; }
+  aside select { width:100%; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--border); border-radius:8px; padding:8px; font-size:13px; cursor:pointer;
+    transition:border-color .18s ease; }
+  aside select:hover { border-color:var(--border-soft); }
+  main { flex:1; padding:24px; overflow:auto; }
+
+  /* ==================================================
+     TABS
+     ================================================== */
+  .tabs { display:flex; gap:2px; flex-wrap:wrap; margin-bottom:20px;
+    border-bottom:1px solid var(--border); position:relative; }
+  .tabs button { background:none; border:none; color:var(--muted);
+    padding:11px 18px; cursor:pointer; font-size:13px; font-weight:700; letter-spacing:.2px;
+    border-bottom:2px solid transparent; transition:color .2s ease, border-color .25s ease; }
+  .tabs button:hover { color:var(--txt); }
+  .tabs button.active { color:var(--accent); border-bottom-color:var(--accent);
+    text-shadow:0 0 14px rgba(76,154,255,.6); }
+
+  /* ==================================================
+     TAB PAGES + ENTRANCE ANIMATIONS
+     ================================================== */
+  .tabpage { display:none; }
+  .tabpage.active { display:block; animation:slideIn .55s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes slideIn {
+    from { opacity:0; transform:translateX(40px) scale(.98); }
+    to   { opacity:1; transform:translateX(0)   scale(1); }
+  }
+  /* Cards cascade in one-by-one when a tab opens. */
+  .tabpage.active .card { animation:cardIn .5s cubic-bezier(.2,.7,.3,1) both; }
+  .tabpage.active .card:nth-child(1){ animation-delay:.05s; }
+  .tabpage.active .card:nth-child(2){ animation-delay:.13s; }
+  .tabpage.active .card:nth-child(3){ animation-delay:.21s; }
+  .tabpage.active .card:nth-child(4){ animation-delay:.29s; }
+  .tabpage.active .card:nth-child(5){ animation-delay:.37s; }
+  .tabpage.active .card:nth-child(6){ animation-delay:.45s; }
+  .tabpage.active .card:nth-child(n+7){ animation-delay:.5s; }
+  @keyframes cardIn {
+    from { opacity:0; transform:translateY(22px) scale(.96); }
+    to   { opacity:1; transform:translateY(0)   scale(1); }
+  }
+
+  /* ==================================================
+     KPI CARDS
+     ================================================== */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:14px; margin-bottom:20px; }
+  .kpi { position:relative; overflow:hidden;
+    background:linear-gradient(150deg, var(--panel2), var(--panel));
+    border:1px solid var(--border); border-radius:var(--radius); padding:16px 16px 14px;
+    transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease; }
+  .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+    background:linear-gradient(180deg,var(--accent),var(--accent2)); opacity:.85; }
+  .kpi:hover { transform:translateY(-4px); border-color:var(--border-soft);
+    box-shadow:0 14px 34px rgba(0,0,0,.45); }
+  .kpi .v { font-size:24px; font-weight:800; letter-spacing:.3px;
+    background:linear-gradient(90deg,#fff,#9cc0ff); -webkit-background-clip:text;
+    background-clip:text; -webkit-text-fill-color:transparent; }
+  .kpi .l { font-size:10.5px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.6px; margin-top:4px; }
+
+  /* ==================================================
+     GRID + CARDS
+     ================================================== */
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; }
+  .card { position:relative; overflow:hidden;
+    background:linear-gradient(155deg, rgba(27,37,63,.92), rgba(20,29,51,.86));
+    backdrop-filter:blur(6px);
+    border:1px solid var(--border); border-radius:var(--radius); padding:16px;
+    transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease; }
+  .card::before { content:""; position:absolute; inset:0; border-radius:var(--radius); padding:1px;
+    background:linear-gradient(135deg, rgba(76,154,255,.5), transparent 60%);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor; mask-composite:exclude; opacity:0;
+    transition:opacity .25s ease; pointer-events:none; }
+  .card:hover { transform:translateY(-4px); border-color:var(--border-soft);
+    box-shadow:0 16px 40px rgba(0,0,0,.5); }
+  .card:hover::before { opacity:1; }
+  .card h3 { margin:0 0 5px; font-size:14.5px; font-weight:700; letter-spacing:.2px; }
+  .card .cap { color:var(--muted); font-size:11.5px; margin-bottom:10px; line-height:1.5; }
+  .card .why { display:block; margin-top:8px; padding-top:8px; border-top:1px dashed var(--border);
+    color:#8fa3c7; font-size:11px; line-height:1.5; }
+  .card.full { grid-column:1/-1; }
+  .chart { width:100%; }
+
+  /* ==================================================
+     TAB INTRO + HELP
+     ================================================== */
+  .tabintro { background:linear-gradient(135deg, rgba(27,37,63,.85), rgba(20,29,51,.7));
+    border:1px solid var(--border); border-left:3px solid var(--accent);
+    border-radius:10px; padding:13px 16px; margin-bottom:18px; font-size:13px;
+    color:var(--muted); line-height:1.6; }
+  .tabintro b { color:var(--txt); }
+  .helpbox { background:linear-gradient(135deg, rgba(245,133,24,.10), rgba(20,29,51,.6));
+    border-left:3px solid var(--warn); color:#f6d9b8;
+    padding:11px 15px; border-radius:8px; margin-bottom:16px; font-size:12px; line-height:1.55; }
+
+  /* ==================================================
+     TABLES
+     ================================================== */
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  thead th { background:linear-gradient(180deg,var(--panel3),var(--panel2));
+    color:var(--accent); font-weight:700; letter-spacing:.3px;
+    border-bottom:2px solid var(--accent-soft); position:sticky; top:0; }
+  th,td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:700; }
+  tbody tr:nth-child(even) td { background:rgba(76,154,255,.04); }
+  tbody tr { transition:background .15s ease; }
+  tbody tr:hover td { background:var(--accent-soft); }
+  tbody tr:hover td:first-child { color:var(--accent); }
+
+  .empty { color:var(--muted); text-align:center; padding:60px 0; font-size:15px; }
+  .spinner { color:var(--muted); text-align:center; padding:40px; }
+
+  /* ==================================================
+     HERO / COVER SCREEN
+     ================================================== */
+  #start {
+    position:relative; overflow:hidden;
+    min-height:100vh; padding:0;
+    display:flex; align-items:center; justify-content:center;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(76,154,255,.24), transparent 60%),
+      radial-gradient(1000px 500px at 90% 10%, rgba(245,133,24,.20), transparent 60%),
+      radial-gradient(900px 700px at 50% 110%, rgba(84,162,75,.18), transparent 60%),
+      linear-gradient(135deg, #070d18 0%, #121c33 55%, #0c1730 100%);
+  }
+  /* subtle grid texture overlay */
+  #start::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:
+      linear-gradient(rgba(76,154,255,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(76,154,255,.04) 1px, transparent 1px);
+    background-size:48px 48px; opacity:.6;
+    mask:radial-gradient(ellipse at center, #000 30%, transparent 75%); }
+  /* drifting aurora blobs behind the title */
+  #start .blob { position:absolute; border-radius:50%; filter:blur(70px); opacity:.5;
+    animation:float 16s ease-in-out infinite; }
+  #start .blob.b1 { width:420px; height:420px; left:-90px; top:8%;
+    background:radial-gradient(circle,#4c9aff,transparent 70%); }
+  #start .blob.b2 { width:460px; height:460px; right:-110px; top:26%;
+    background:radial-gradient(circle,#f58518,transparent 70%); animation-delay:-5s; }
+  #start .blob.b3 { width:340px; height:340px; left:42%; bottom:-70px;
+    background:radial-gradient(circle,#54a24b,transparent 70%); animation-delay:-9s; }
+  @keyframes float {
+    0%,100% { transform:translate(0,0) scale(1); }
+    50% { transform:translate(45px,-34px) scale(1.14); }
+  }
+
+  #start .hero { position:relative; z-index:2; max-width:780px; padding:0 24px; text-align:center; }
+  #start .hero .badge { display:inline-flex; align-items:center; gap:8px;
+    background:rgba(76,154,255,.13); border:1px solid rgba(76,154,255,.4);
+    color:#bcd3ff; font-size:12px; font-weight:700; padding:8px 16px; border-radius:999px;
+    margin-bottom:24px; letter-spacing:.5px;
+    box-shadow:0 4px 18px rgba(76,154,255,.25); }
+  #start .hero .badge .dot { width:7px; height:7px; border-radius:50%; background:#4c9aff;
+    box-shadow:0 0 14px #4c9aff; animation:pulse 2.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:.35;transform:scale(.6);} }
+
+  #start .hero h1 { font-size:58px; line-height:1.04; margin:0 0 16px; font-weight:900;
+    letter-spacing:-1.5px;
+    background:linear-gradient(90deg,#ffffff 0%,#9cc0ff 45%,#4c9aff 100%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 8px 28px rgba(76,154,255,.35));
+    animation:heroIn 1.1s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes heroIn { from{opacity:0; transform:translateY(28px) scale(.95);} to{opacity:1; transform:translateY(0) scale(1);} }
+  #start .hero p.lead { color:#aebbd6; font-size:17px; line-height:1.65; margin:0 auto 32px; max-width:580px;
+    animation:heroIn 1.1s .15s cubic-bezier(.2,.7,.3,1) both; }
+  #start .hero p.lead b { color:#fff; }
+
+  /* the big upload call-to-action */
+  #start .cta { display:inline-flex; align-items:center; gap:12px; cursor:pointer;
+    background:linear-gradient(135deg,#4c9aff,#6a5cff); color:#fff; font-size:17px; font-weight:800;
+    padding:17px 32px; border-radius:14px; margin:6px 0 28px; letter-spacing:.3px;
+    box-shadow:0 14px 44px rgba(76,154,255,.5), 0 0 0 1px rgba(255,255,255,.15) inset;
+    transition:transform .2s ease, box-shadow .2s ease; position:relative; overflow:hidden;
+    animation:heroIn 1.1s .3s cubic-bezier(.2,.7,.3,1) both, ctaPulse 3.5s 2s ease-in-out infinite; }
+  @keyframes ctaPulse { 0%,100%{box-shadow:0 14px 44px rgba(76,154,255,.5), 0 0 0 1px rgba(255,255,255,.15) inset;}
+    50%{box-shadow:0 18px 60px rgba(76,154,255,.7), 0 0 0 1px rgba(255,255,255,.25) inset;} }
+  #start .cta:hover { transform:translateY(-4px) scale(1.02); }
+  #start .cta:active { transform:translateY(-1px) scale(.99); }
+  #start .cta::after { content:""; position:absolute; top:0; left:-100%; width:60%; height:100%;
+    background:linear-gradient(120deg,transparent,rgba(255,255,255,.35),transparent);
+    transform:skewX(-20deg); transition:left .7s ease; }
+  #start .cta:hover::after { left:130%; }
+  #start .cta svg { width:22px; height:22px; }
+  #start .cta .hint { display:block; font-size:12px; font-weight:600; color:#cfe0ff; opacity:.9; margin-top:2px; }
+
+  /* the three step cards */
+  #start .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; max-width:700px; margin:10px auto 0; }
+  #start .step { position:relative; text-align:left; overflow:hidden;
+    background:linear-gradient(155deg, rgba(26,34,54,.6), rgba(20,29,51,.5));
+    border:1px solid rgba(76,154,255,.2); border-radius:16px;
+    padding:20px 20px 18px; backdrop-filter:blur(10px);
+    transition:border-color .25s, transform .25s, box-shadow .25s; }
+  #start .step::before { content:""; position:absolute; top:0; left:0; right:0; height:2px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2)); opacity:0; transition:opacity .25s; }
+  #start .step:hover { transform:translateY(-6px); border-color:rgba(76,154,255,.55);
+    box-shadow:0 18px 44px rgba(0,0,0,.45); }
+  #start .step:hover::before { opacity:1; }
+  #start .step .num { width:32px; height:32px; border-radius:10px; display:flex; align-items:center;
+    justify-content:center; font-size:15px; font-weight:900; color:#fff; margin-bottom:14px;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    box-shadow:0 8px 22px rgba(76,154,255,.45); }
+  #start .step h3 { margin:0 0 7px; font-size:15.5px; color:#fff; font-weight:700; }
+  #start .step p { margin:0; font-size:12.5px; line-height:1.6; color:#9fb0d0; }
+
+  /* tiny floating chart glyphs decorating the hero */
+  #start .glyph { position:absolute; opacity:.18; color:#4c9aff;
+    animation:drift 14s ease-in-out infinite; }
+  @keyframes drift {
+    0%,100% { transform:translateY(0) rotate(0); }
+    50% { transform:translateY(-24px) rotate(8deg); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 Exam Analytics</h1>
+  <span class="sub">Competency-wise exam analytics from your Excel workbook</span>
+  <div class="filewrap">
+    <span class="filename" id="fname">No file loaded</span>
+    <label>Choose Excel<input type="file" id="file" accept=".xlsx,.xlsm" /></label>
+  </div>
+</header>
+
+<div id="start">
+  <!-- drifting aurora blobs -->
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+
+  <!-- tiny floating chart glyphs -->
+  <svg class="glyph" style="left:8%;top:22%;width:46px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 17 9 11 14 14 21 6"/></svg>
+  <svg class="glyph" style="right:10%;top:30%;width:42px;animation-delay:-4s;color:#f58518;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="11" width="4" height="9"/><rect x="10" y="6" width="4" height="14"/><rect x="17" y="9" width="4" height="11"/></svg>
+  <svg class="glyph" style="left:18%;bottom:16%;width:50px;animation-delay:-7s;color:#54a24b;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 20h18"/><path d="M3 20l5-7 4 4 6-9 4 5"/></svg>
+  <svg class="glyph" style="right:16%;bottom:20%;width:44px;animation-delay:-10s;color:#b279a2;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 6"/></svg>
+
+  <div class="hero">
+    <div class="badge"><span class="dot"></span> Developed by Rohit Kumar</div>
+    <h1>Exam Analytics</h1>
+    <p class="lead">
+      Turn one Excel workbook into <b>~50 live graphs</b> — by <b>competency</b>
+      (Remember · Understand · Apply · Analyze · Evaluate), by <b>section</b>,
+      by <b>question</b>, by <b>student</b>, plus your <b>performance bands</b>
+      (Need Improvement · Adequate · Sufficient · Excellent).
+    </p>
+
+    <label class="cta" for="file">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span>Choose Excel workbook</span>
+      <span class="hint">.xlsx file · runs instantly</span>
+    </label>
+
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h3>Pick the file</h3>
+        <p>Click above and choose your marks workbook. Sheets, questions, competencies and bands are all detected automatically.</p>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h3>Filter</h3>
+        <p>Use the sidebar to focus on sections, competencies or question types. Every chart updates live.</p>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h3>Read the tabs</h3>
+        <p>Nine tabs across the top — Overview, Competency, Questions, Students, Sections, Bands and more. Each graph explains itself.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="layout hidden">
+  <aside>
+    <h3>Filters</h3>
+    <p style="color:var(--muted);font-size:11.5px;line-height:1.5;margin:0 0 12px">
+      Narrow every graph to a subset. Tick/ untick to focus.
+    </p>
+    <h3>Sections</h3>
+    <div class="chk" id="fSections"></div>
+    <h3>Competencies</h3>
+    <div class="chk" id="fComps"></div>
+    <h3>Question types</h3>
+    <div class="chk" id="fTypes"></div>
+    <h3>Pass mark (%) <span id="pmVal" style="color:var(--accent)">40</span></h3>
+    <p style="color:var(--muted);font-size:11px;line-height:1.45;margin:0 0 6px">
+      The total-% cutoff for "pass". Used by pass/fail graphs.
+    </p>
+    <input type="range" id="passMark" min="0" max="100" value="40" step="5" />
+  </aside>
+
+  <main>
+    <div class="tabs" id="tabs"></div>
+    <div id="pages"></div>
+  </main>
+</div>
+
+<script>
+// ==================================================
+// DASHBOARD - OVERALL FLOW
+// ==================================================
+// This is a single self-contained HTML file. No server, no Python, no installs.
+// It runs entirely in the browser.
+//
+// FLOW when the user opens the file:
+//   1. User clicks "Choose Excel" and picks the workbook.
+//   2. detectSheets() finds every worksheet that follows the template
+//      (cell A1 = "competency", cell A2 = "Students") - any sheet names, any count.
+//   3. For each detected sheet, the load reads:
+//        - Row 1, cols B..   -> competency code per question (R/U/Ap/An/Ev...)
+//        - Rows 3+, col A    -> student id
+//        - Rows 3+, cols B.. -> marks per question
+//        - Side table cols 35-37 (rows 2..N) -> per-question max marks + type (MCQ/TF/WR)
+//             (merged across sheets so a type/marks found in one sheet fills all)
+//        - Side table cols 38-41 (rows 18-21) -> performance bands + counts
+//             (Need Improvement / Adequate / Sufficient / Excellent)
+//   4. Each record gets derived fields: pct, competencyFull, difficulty, and a
+//      performance band (from the student's total %).
+//   5. buildSidebar() + buildTabs() create the filter controls and 9 tabs.
+//   6. render() applies the sidebar filters and calls the active tab's renderer,
+//      which draws all graphs with Plotly.
+//
+// If a workbook has no side table, max marks fall back to a column-max heuristic
+// and types show as "Unknown" (a notice is displayed).
+// ==================================================
+
+
+// ==================================================
+// CONFIG / DYNAMIC STATE
+// ==================================================
+// Nothing below is hardcoded to a specific exam. Question count, competency
+// codes, sheet names, question types and max marks are all detected from the
+// workbook at run time.
+// ==================================================
+const FIRST_STUDENT_ROW = 3;          // 1-indexed Excel row where students start
+const TEMPLATE_A1 = "competency";     // markers used to auto-detect template sheets
+const TEMPLATE_A2 = "students";
+
+// Optional pretty-name map for common competency codes. If a code is not here,
+// the raw code is shown as-is (so new competency codes work without changes).
+const COMP_FULL = { R:"Remember", U:"Understand", Ap:"Apply", An:"Analyze", Ev:"Evaluate" };
+
+// Filled in after load (data-driven, NOT hardcoded):
+let COMP_ORDER = [];        // e.g. ["R","U","Ap","An","Ev"] - whatever row 1 contains
+let COMP_FULL_ORDER = [];   // pretty names in the same order
+let SECTIONS_LIST = [];     // e.g. ["A","B","C","D"] - whatever sheets were detected
+
+// Derive the section letter from a sheet name (leading letters).
+// "A1"->"A", "B1"->"B", "SectionC"->"SectionC". Override is via the script's --sections.
+function deriveSection(name){ const m = String(name).match(/^[A-Za-z]+/); return m?m[0]:name; }
+
+// Difficulty tier from max marks (1=Low, 2-3=Medium, >=4=High).
+function difficulty(maxMarks){ const m=Number(maxMarks); return m<=1?"Low": m<=3?"Medium":"High"; }
+
+// ==================================================
+// PERFORMANCE BANDS (read from Excel cols 38-41, also computable per student)
+// Template methodology: total % -> band. Thresholds match the Excel side table.
+// ==================================================
+const BANDS = [
+  { name:"Need Improvement", max:40,  color:"#e45756" },
+  { name:"Adequate",         max:60,  color:"#f58518" },
+  { name:"Sufficient",       max:80,  color:"#54a24b" },
+  { name:"Excellent",        max:100, color:"#4c9aff" },
+];
+const BAND_ORDER = BANDS.map(b=>b.name);
+const BAND_COLOR = {}; BANDS.forEach(b=>BAND_COLOR[b.name]=b.color);
+function bandFor(pct){ for(const b of BANDS){ if(pct<=b.max) return b.name; } return "Excellent"; }
+
+// Question-type -> answer-fill behaviour (mirrors config.py). Used ONLY by the
+// Generate SQL tab. objective types get uanswer/canswer filled; everything else stays NULL.
+const OBJECTIVE_TYPES = new Set(["multipleChoice","trueFalse"]);
+const MCQ_TYPES  = new Set(["multipleChoice"]);
+const TF_TYPES   = new Set(["trueFalse"]);
+
+// Colour palettes (dynamic - works for any number of sections / types).
+const PALETTE = ["#4c9aff","#f58518","#54a24b","#b279a2","#e45756","#72b7b2","#9d755d","#bab0ac","#ff9da6","#d6743c"];
+function secColor(s){ const i=SECTIONS_LIST.indexOf(s); return PALETTE[(i<0?0:i)%PALETTE.length]; }
+
+// ==================================================
+// STATE
+// ==================================================
+let ALL = [];          // all records
+let FILTERED = [];     // after filters
+let stuTotal=[], stuComp=[], qStats=[];
+let BAND_SUMMARY = {}; // section -> [{name, pctRange, marksRange, count}] from Excel cols 38-41
+let META_BUNDLE = null;  // loaded paper_<id>_meta.json (DB bundle) - gates SQL generation
+let TABS = [
+  ["overview","Overview"], ["comp","Competency"], ["questions","Questions"],
+  ["students","Students"], ["sections","Sections"], ["bands","Bands"],
+  ["sql","Generate SQL"]
+];
+let curTab = "overview";
+
+// ==================================================
+// FILE LOAD
+// ==================================================
+// Auto-detect template sheets: A1=="competency" and A2=="Students".
+function detectSheets(wb){
+  return wb.SheetNames.filter(name => {
+    const ws = wb.Sheets[name];
+    const a1 = ws["A1"] ? ws["A1"].v : null;
+    const a2 = ws["A2"] ? ws["A2"].v : null;
+    return a1!=null && String(a1).trim().toLowerCase()===TEMPLATE_A1
+        && a2!=null && String(a2).trim().toLowerCase()===TEMPLATE_A2;
+  });
+}
+
+// Pick ONE sheet per section (the one with the most students; first on tie).
+// A workbook may have A, A1, A2 all -> section "A". Loading all of them would
+// double-count students. This picks the "full" sheet (A1/B1/C1/D1) over
+// subset/working sheets, so each section is counted exactly once.
+function pickOneSheetPerSection(wb){
+  const all = detectSheets(wb);
+  // Group sheet names by their derived section letter.
+  const bySec = {};
+  all.forEach(name=>{const sec=deriveSection(name); (bySec[sec]=bySec[sec]||[]).push(name);});
+  const picked = [];
+  for(const sec in bySec){
+    const names = bySec[sec];
+    if(names.length===1){ picked.push(names[0]); continue; }
+    // Count students (non-empty col A from row 3) per sheet; pick the most.
+    let best=null, bestCount=-1;
+    for(const name of names){
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:null});
+      let count=0;
+      for(let r=2; r<rows.length; r++){ const sid=rows[r]?rows[r][0]:null; if(sid==null||sid==='') break; count++; }
+      if(count>bestCount){ best=name; bestCount=count; }  // strict > keeps first on tie
+    }
+    picked.push(best);
+  }
+  // Return in workbook order.
+  const order = {};
+  all.forEach((n,i)=>order[n]=i);
+  picked.sort((a,b)=>(order[a]??999)-(order[b]??999));
+  return picked;
+}
+
+// Load a workbook from an ArrayBuffer (shared by the file picker and the ?file= auto-load).
+async function loadWorkbook(buf, name){
+  document.getElementById("fname").textContent = name;
+  const wb = XLSX.read(buf, {type:"array"});
+
+  // Auto-detect which sheets follow the template (any names, any count),
+  // then pick ONE sheet per section so students are never double-counted.
+  const sheets = pickOneSheetPerSection(wb);
+  if (!sheets.length) { alert("No template sheets found (A1 must be 'competency', A2 'Students')."); return; }
+
+  ALL = [];
+  BAND_SUMMARY = {};
+  const compSet = new Set();   // collect competency codes across all sheets
+  const colMax = {};           // sequence -> max score seen (heuristic fallback only)
+  let usedHeuristic = false;   // true if any max marks had to be estimated
+  // Merged side table across all sheets (same paper -> same Q->marks/type mapping).
+  // Sheets may leave the type column blank; we fill from any sheet that has it.
+  const globalMM = {}, globalType = {};
+
+  for (const sn of sheets) {
+    const sec = deriveSection(sn);
+    const ws = wb.Sheets[sn];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+    // rows[0] = competencies (index 0 = 'competency', index 1.. = codes for Q1..)
+    // rows[1] = Q headers, rows[2+] = students (0-indexed; Excel row 3 = index 2)
+    const compRow = rows[0] || [];
+
+    // Dynamic question count: count contiguous non-empty competency cells from index 1.
+    let nq = 0;
+    for (let i=1; i<compRow.length; i++) {
+      const v = compRow[i];
+      if (v==null || String(v).trim()==="") break;
+      nq++;
+    }
+    if (nq === 0) { console.warn(`Sheet ${sn} has no questions, skipping.`); continue; }
+
+    const comps = {};
+    for (let s=1; s<=nq; s++) {
+      const v = compRow[s];
+      comps[s] = v!=null ? String(v).trim() : null;
+      if (comps[s]) compSet.add(comps[s]);
+    }
+
+    // ---- Side table (cols 35-37): per-question max marks + type (MCQ/TF/WR) ----
+    // Row 1 (index 0): col35="Q", col36="marks". The row for Q_s is index s.
+    // col35(idx34)=Q#, col36(idx35)=marks, col37(idx36)=type.
+    // Merge into globalMM / globalType so a type/marks value found in any sheet
+    // (e.g. only A1 has types) is used for all sections of the same paper.
+    const hasSideTable = rows[0] && rows[0][34]!=null
+      && String(rows[0][34]).trim().toLowerCase()==="q";
+    if (hasSideTable) {
+      for (let s=1; s<=nq; s++) {
+        const qRow = rows[s] || [];
+        if (qRow[35]!=null && qRow[35]!=="") globalMM[s] = Number(qRow[35]);
+        if (qRow[36]!=null && qRow[36]!=="") globalType[s] = String(qRow[36]).trim();
+      }
+    }
+
+    // ---- Performance bands (cols 38-41, rows 18-21) ----
+    // Header at index 16 (Excel row 17): col38="categories", col41="count".
+    // Band rows index 17..20: col38=name, col39=%range, col40=marks range, col41=count.
+    const bands = [];
+    for (let r=17; r<=20; r++) {
+      const brow = rows[r] || [];
+      const name = brow[37];
+      if (name!=null && String(name).trim()!=="") {
+        bands.push({
+          name: String(name).trim(),
+          pctRange:   brow[38]!=null ? String(brow[38]).trim() : "",
+          marksRange: brow[39]!=null ? String(brow[39]).trim() : "",
+          count:      brow[40]!=null ? Number(brow[40]) : 0,
+        });
+      }
+    }
+    if (bands.length) BAND_SUMMARY[sec] = bands;
+
+    // ---- Student marks rows ----
+    for (let r=FIRST_STUDENT_ROW-1; r<rows.length; r++) {
+      const row = rows[r]; if (!row) continue;
+      const sid = row[0]; if (sid==null || sid==="") continue;   // skip blanks
+      const sidN = Number(sid); if (!isFinite(sidN)) continue;
+      for (let s=1; s<=nq; s++) {
+        let v = row[s]; if (v==null || v==="") v=0;
+        let sc = Number(v); if (!isFinite(sc)) sc=0;
+        // Max marks: merged side table (best) > heuristic column max.
+        let mm = globalMM[s]!=null ? globalMM[s] : null;
+        if (mm == null) { colMax[s] = Math.max(colMax[s]||0, sc); }
+        // Type: merged side table > "Unknown".
+        let qt = globalType[s] || "Unknown";
+        ALL.push({ section:sec, studentId:sidN, sequence:s, question:"Q"+s,
+          competency:comps[s], scored:sc, maxMarks:mm,
+          questionType:qt, difficulty:null });
+      }
+    }
+  }
+
+  // Resolve max marks + derived fields. Assign each student a performance band.
+  ALL.forEach(r => {
+    if (r.maxMarks == null) { r.maxMarks = colMax[r.sequence] || 1; usedHeuristic = true; }
+    r.difficulty = difficulty(r.maxMarks);
+    r.pct = r.maxMarks>0 ? r.scored/r.maxMarks*100 : 0;
+    r.competencyFull = COMP_FULL[r.competency] || (r.competency || "Unknown");
+  });
+
+  // Build data-driven competency order (preserve first-seen order across sheets).
+  COMP_ORDER = [...compSet];
+  COMP_FULL_ORDER = COMP_ORDER.map(c => COMP_FULL[c] || c);
+  SECTIONS_LIST = [...new Set(ALL.map(r=>r.section))].sort();
+
+  document.getElementById("start").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  if (usedHeuristic) {
+    // Show a plain-language notice about estimated max marks.
+    const notice = document.createElement("div");
+    notice.className = "helpbox";
+    notice.textContent = "Heads up: this workbook has no side table (columns 35-37), so max marks per question are estimated from the highest score in each column, and question types show as 'Unknown'. Add the side table (Q / marks / MCQ|TF|WR) to the workbook for exact marks and types.";
+    document.querySelector("main").prepend(notice);
+  }
+  buildSidebar();
+  buildTabs();
+  render();
+}
+
+// File picker -> load the workbook.
+document.getElementById("file").addEventListener("change", async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  loadWorkbook(await f.arrayBuffer(), f.name);
+});
+
+// Auto-load via ?file= and tab deep-linking via ?tab= (used by headless screenshots / shareable direct links).
+(async ()=>{
+  const params = new URLSearchParams(location.search);
+  const file = params.get("file");
+  const tab  = params.get("tab");
+  if(tab && TABS.some(([id])=>id===tab)) curTab = tab;  // set tab before render so it opens on the right tab
+  if(file){
+    try{
+      const r = await fetch(file);
+      if(!r.ok) throw new Error("could not fetch "+file);
+      await loadWorkbook(await r.arrayBuffer(), file.split("/").pop());
+    }catch(err){ console.error("Auto-load failed:", err); }
+  } else if(tab && ALL.length){
+    showPage();  // data already present, just switch tab
+  }
+})();
+
+// ==================================================
+// SIDEBAR / TABS
+// ==================================================
+// buildSidebar() populates the filter checkboxes (sections / competencies /
+// question types) from the loaded data, plus the pass-mark and Top-N sliders.
+// Any change re-runs render() so every chart updates live.
+function buildSidebar(){
+  const secs = [...new Set(ALL.map(r=>r.section))].sort();
+  const comps = COMP_ORDER.filter(c=>ALL.some(r=>r.competency===c));
+  const types = [...new Set(ALL.map(r=>r.questionType))].sort();
+  const box = (id,opts) => opts.map(o=>
+    `<label><input type="checkbox" data-g="${id}" value="${o}" checked> ${o}</label>`).join("");
+  document.getElementById("fSections").innerHTML = box("sec",secs);
+  document.getElementById("fComps").innerHTML = box("comp",comps);
+  document.getElementById("fTypes").innerHTML = box("type",types);
+  document.querySelectorAll('aside input[type=checkbox]').forEach(c=>c.addEventListener("change",render));
+  const pm = document.getElementById("passMark");
+  pm.addEventListener("input",()=>{ document.getElementById("pmVal").textContent=pm.value; render(); });
+}
+
+// buildTabs() renders the row of tab buttons and the empty tab-page containers.
+function buildTabs(){
+  const t = document.getElementById("tabs");
+  t.innerHTML = TABS.map(([id,label])=>
+    `<button data-tab="${id}" class="${id===curTab?'active':''}">${label}</button>`).join("");
+  t.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+    curTab = b.dataset.tab;
+    t.querySelectorAll("button").forEach(x=>x.classList.toggle("active",x===b));
+    showPage();
+  }));
+  const pages = document.getElementById("pages");
+  pages.innerHTML = TABS.map(([id])=>`<div class="tabpage" id="pg-${id}"></div>`).join("");
+}
+
+// selected/group -> which checkbox values are ticked. passMark/topN read the sliders.
+function selected(group){
+  return [...document.querySelectorAll(`input[data-g="${group}"]:checked`)].map(c=>c.value);
+}
+function passMark(){ return +document.getElementById("passMark").value; }
+// Fixed list length for the Top/Bottom tables in the Students tab (slider removed).
+const TOP_BOTTOM_N = 10;
+function topN(){ return TOP_BOTTOM_N; }
+
+// ==================================================
+// DERIVE + RENDER
+// ==================================================
+// derive(df) builds three summary tables from the filtered records:
+//   stuTotal - one row per student: total scored, total max, total %, performance band
+//   stuComp  - one row per (student, competency): scored, max, % across that competency's questions
+//   qStats   - one row per question: total scored, avg %, attempt rate
+// These tables feed every graph in every tab.
+function derive(df){
+  // ---- Student totals (sum marks across all questions per student) ----
+  const sm = new Map();
+  df.forEach(r=>{
+    const k=r.section+"|"+r.studentId;
+    if(!sm.has(k)) sm.set(k,{section:r.section,studentId:r.studentId,scored:0,max:0});
+    const o=sm.get(k); o.scored+=r.scored; o.max+=r.maxMarks;
+  });
+  stuTotal=[...sm.values()].map(o=>({...o, totalScored:o.scored, totalMax:o.max,
+    totalPct: o.max>0? o.scored/o.max*100:0,
+    band: bandFor(o.max>0? o.scored/o.max*100 : 0) }));
+
+  // ---- Student x competency (sum marks per student per competency) ----
+  const cm = new Map();
+  df.forEach(r=>{
+    const k=r.section+"|"+r.studentId+"|"+r.competency;
+    if(!cm.has(k)) cm.set(k,{section:r.section,studentId:r.studentId,
+      competency:r.competency, competencyFull:r.competencyFull, scored:0,max:0});
+    const o=cm.get(k); o.scored+=r.scored; o.max+=r.maxMarks;
+  });
+  stuComp=[...cm.values()].map(o=>({...o, pct:o.max>0?o.scored/o.max*100:0}));
+
+  // ---- Question stats (aggregate per question across all students) ----
+  const qm = new Map();
+  df.forEach(r=>{
+    const k=r.sequence;
+    if(!qm.has(k)) qm.set(k,{sequence:r.sequence,question:r.question,
+      competencyFull:r.competencyFull,questionType:r.questionType,
+      difficulty:r.difficulty,maxMarks:r.maxMarks, totalScored:0,attempted:0,n:0,pctSum:0});
+    const o=qm.get(k); o.totalScored+=r.scored; o.attempted+= r.scored>0?1:0;
+    o.n++; o.pctSum+=r.pct;
+  });
+  qStats=[...qm.values()].map(o=>({...o, avgPct:o.pctSum/o.n, attemptRate:o.attempted/o.n*100}));
+}
+
+// render() applies the sidebar filters, rebuilds the derived tables, then draws
+// the currently active tab.
+function render(){
+  const secs=selected("sec"), comps=selected("comp"), types=selected("type");
+  FILTERED = ALL.filter(r=>secs.includes(r.section)&&comps.includes(r.competency)&&types.includes(r.questionType));
+  if(FILTERED.length===0){ return; }
+  derive(FILTERED);
+  showPage();
+}
+
+// showPage() switches the visible tab and calls its renderer.
+function showPage(){
+  TABS.forEach(([id])=>document.getElementById("pg-"+id).classList.remove("active"));
+  const pg=document.getElementById("pg-"+curTab);
+  pg.classList.add("active");
+  const fn = {overview:renderOverview, comp:renderComp, questions:renderQuestions,
+    students:renderStudents, sections:renderSections, bands:renderBands, sql:renderSQL};
+  pg.innerHTML = "";
+  fn[curTab](pg);
+}
+
+// ---- Small DOM/Plotly helpers used by every tab renderer ----
+// card()     -> HTML for a titled chart card (full = span both grid columns).
+// chartDiv() -> a <div> placeholder Plotly draws into.
+// plot()     -> wraps Plotly.react with the dark theme defaults.
+function card(title,caption,html,full){
+  return `<div class="card ${full?'full':''}"><h3>${title}</h3><div class="cap">${caption}</div>${html}</div>`;
+}
+function chartDiv(id){ return `<div class="chart" id="${id}"></div>`; }
+function plot(id,data,layout,config){
+  Plotly.react(id,data,Object.assign({font:{color:"#e8ecf4",size:11},
+    paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
+    margin:{l:50,r:20,t:20,b:40},
+    // Smooth animation whenever data changes (filters / tab switches) - makes charts feel interactive.
+    transition:{duration:650, easing:"cubic-in-out"}},
+    layout),
+    Object.assign({responsive:true, displaylogo:false}, config||{}));
+}
+// compColor() picks a colour for a competency (pretty name); falls back to the
+// rotating palette for any competency not in the default map (so new codes work).
+function compColor(c){ return {"Remember":"#4c9aff","Understand":"#f58518","Apply":"#54a24b","Analyze":"#b279a2","Evaluate":"#e45756"}[c] || PALETTE[COMP_FULL_ORDER.indexOf(c)%PALETTE.length] || "#888"; }
+
+// ==================================================
+// TAB: OVERVIEW
+// ==================================================
+function renderOverview(pg){
+  const nStu=stuTotal.length, totalMax=stuTotal[0]?.totalMax||0;
+  const avgPct=stuTotal.reduce((a,s)=>a+s.totalPct,0)/nStu;
+  const topScore=Math.max(...stuTotal.map(s=>s.totalScored));
+  const passN=stuTotal.filter(s=>s.totalPct>passMark()).length;
+  const totalRecords=FILTERED.length;
+  const nQuestions = qStats.length;   // dynamic question count
+
+  pg.innerHTML = `
+    <div class="tabintro"><b>Overview.</b> The headline numbers for whoever just loaded - how many students, how they spread, which competencies carry the most marks. Read this first to get the lay of the land.</div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">${nStu}</div><div class="l">Students</div></div>
+      <div class="kpi"><div class="v">${nQuestions}</div><div class="l">Questions</div></div>
+      <div class="kpi"><div class="v">${totalMax}</div><div class="l">Max marks / student</div></div>
+      <div class="kpi"><div class="v">${avgPct.toFixed(1)}%</div><div class="l">Class average %</div></div>
+      <div class="kpi"><div class="v">${topScore.toFixed(0)}</div><div class="l">Top score</div></div>
+      <div class="kpi"><div class="v">${(passN/nStu*100).toFixed(0)}%</div><div class="l">Pass rate</div></div>
+    </div>
+    <div class="grid">
+      ${card("Overall score distribution",
+        "X-axis = total marks (0 to 60). Y-axis = number of students. Example: a bar at 35 reaching up to 6 means 6 students scored around 35 marks. Tall bar on the right = class did well; tall bar on the left = many struggled.",
+        chartDiv("g1"))}
+      ${card("Competency coverage (by marks)",
+        "Donut showing how the paper's 60 marks split across skills. Example: Analyze =18 marks (30%) means Analyze carries the most weight; Understand =7 (11.7%) the least. Big slice = the skill this exam weighs heaviest.",
+        chartDiv("g4"))}
+    </div>`;
+
+  // Histogram: force x-axis from 0 to the max possible marks, so the 0-5 bin always shows.
+  const binSize = totalMax>0 ? totalMax/20 : 1;
+  plot("g1",[{x:stuTotal.map(s=>s.totalScored),type:"histogram",marker:{color:"#4c9aff"},
+     xbins:{start:0,end:totalMax,size:binSize}}],
+     {bargap:0.05,xaxis:{title:"Total marks",range:[0,totalMax]}});
+  // Competency coverage: sum max marks of UNIQUE questions per competency
+  // (count each question once, not once per student, so the donut shows the true paper split).
+  const cmMap={}; const seenSeq={};
+  FILTERED.forEach(r=>{
+    if(seenSeq[r.sequence]) return;   // each question counted once
+    seenSeq[r.sequence]=true;
+    if(!cmMap[r.competencyFull]) cmMap[r.competencyFull]={name:r.competencyFull,max:0};
+    cmMap[r.competencyFull].max+=r.maxMarks;
+  });
+  const cmArr=COMP_FULL_ORDER.filter(n=>cmMap[n]).map(n=>cmMap[n]);
+  plot("g4",[{values:cmArr.map(c=>c.max),labels:cmArr.map(c=>c.name),type:"pie",hole:0.4,
+     marker:{colors:cmArr.map(c=>compColor(c.name))}}],{showlegend:true});
+}
+
+// ==================================================
+// TAB: COMPETENCY
+// ==================================================
+// Kept intentionally light: 3 simple bars a teacher can read at a glance.
+// (The denser per-student/heatmap views live in the Students tab instead.)
+function renderComp(pg){
+  const comps=COMP_FULL_ORDER.filter(c=>stuComp.some(s=>s.competencyFull===c));
+  const pct=comps.map(c=>{const arr=stuComp.filter(s=>s.competencyFull===c);
+    const m=arr.reduce((a,x)=>a+x.pct,0)/arr.length;
+    return {c,m};});
+  // Per competency, list the actual student IDs who scored 0 and who maxed - so a teacher can act on names, not just counts.
+  const lists=comps.map(c=>{const arr=stuComp.filter(s=>s.competencyFull===c);
+    const zero=arr.filter(s=>s.scored===0).map(s=>s.section+"-"+s.studentId);
+    const full =arr.filter(s=>s.scored>=s.max).map(s=>s.section+"-"+s.studentId);
+    return {c, zero, full};});
+
+  pg.innerHTML=`
+    <div class="tabintro"><b>Competency analysis.</b> The five skills this exam tests - Remember, Understand, Apply, Analyze, Evaluate. Three simple bars + a "which students?" table: how the class did in each skill, how many students totally missed each skill, how many maxed each skill, and exactly who those students are.</div>
+    <div class="grid">
+      ${card("Average % per competency",
+        "One bar per skill = the class's average % in that skill (0-100). Example: Remember 70% but Analyze 30% = the class finds Remember easy but Analyze hard (re-teach Analyze). Tallest bar = easiest skill; shortest = hardest.",
+        chartDiv("c2"))}
+      ${card("Zero-scorers per competency",
+        "One bar per skill = how many students scored 0 in ALL of that skill's questions. Example: Analyze=8 means 8 students got every Analyze question wrong. Tall bar = a skill widely not understood. See the table below for exactly which students.",
+        chartDiv("c10"))}
+      ${card("Full-scorers per competency",
+        "One bar per skill = how many students maxed out that skill (scored = possible). Example: Remember=15 means 15 students got full marks in every Remember question. Tall bar = broadly mastered. See the table below for exactly which students.",
+        chartDiv("c11"))}
+      ${card("Which students scored 0 / maxed each skill",
+        "Each row = one skill. 'Scored 0' lists the exact students who got zero in ALL of that skill's questions (focus support here); 'Maxed' lists those who got full marks. Example: Analyze Scored 0 = A-7, A-9, ... = students 7 and 9 need Analyze support; Maxed = A-14, A-22 = students 14 and 22 mastered it.",
+        `<div id="clist"></div>`,true)}
+    </div>`;
+
+  plot("c2",[{x:comps,y:pct.map(p=>p.m),type:"bar",marker:{color:"#72b7b2"}}],
+    {yaxis:{title:"Avg %",range:[0,100]},showlegend:false});
+  plot("c10",[{x:comps,y:comps.map(c=>stuComp.filter(s=>s.competencyFull===c&&s.scored===0).length),
+    type:"bar",marker:{color:comps.map(compColor)}}],{yaxis:{title:"# students scored 0"},showlegend:false});
+  plot("c11",[{x:comps,y:comps.map(c=>stuComp.filter(s=>s.competencyFull===c&&s.scored>=s.max).length),
+    type:"bar",marker:{color:comps.map(compColor)}}],{yaxis:{title:"# students maxed"},showlegend:false});
+  // "Which students?" table - resolves the counts above to actual student IDs.
+  let rows=`<tr><th>Skill</th><th>Scored 0 (who)</th><th>Maxed (who)</th></tr>`;
+  lists.forEach(l=>{
+    rows+=`<tr><td><b>${l.c}</b></td><td>${l.zero.length?l.zero.join(", "):"<span style='color:var(--muted)'>none</span>"}</td><td>${l.full.length?l.full.join(", "):"<span style='color:var(--muted)'>none</span>"}</td></tr>`;
+  });
+  document.getElementById("clist").innerHTML=`<table>${rows}</table>`;
+}
+
+// ==================================================
+// TAB: QUESTIONS
+// ==================================================
+function renderQuestions(pg){
+  const qs=[...qStats].sort((a,b)=>a.sequence-b.sequence);
+  pg.innerHTML=`
+    <div class="tabintro"><b>Question analysis.</b> Question-by-question (Q1-Q${qs.length}). Three views + a table: which questions are hard, which students skipped, and the 5 hardest / 5 easiest to act on.</div>
+    <div class="grid">
+      ${card("Average % per question",
+        "One bar per question = the class's average % on that question (0-100). Example: Q7 at20% means the class averaged only 20% on Q7. Low bars = the hardest questions (re-teach these).",
+        chartDiv("q2"))}
+      ${card("Attempt rate per question",
+        "One line per question = % of students who scored above 0. Example: Q22 at40% means 60% of students left Q22 blank or got it fully wrong. A dip = a question many skipped.",
+        chartDiv("q3"))}
+      ${card("Hardest 5 / Easiest 5 questions",
+        "Two tables ranking questions by average %. Hardest 5 = the lowest-% questions to re-teach; Easiest 5 = the highest-% ones that are working, keep them.",
+        chartDiv("qtbl"),true)}
+    </div>`;
+  plot("q2",[{x:qs.map(q=>q.question),y:qs.map(q=>q.avgPct),type:"bar",
+    marker:{color:qs.map(q=>compColor(q.competencyFull))}}],{yaxis:{title:"Avg %",range:[0,100]},showlegend:false});
+  plot("q3",[{x:qs.map(q=>q.question),y:qs.map(q=>q.attemptRate),type:"scatter",mode:"lines+markers",
+    line:{color:"#e45756"}}],{yaxis:{title:"Attempt %",range:[0,100]}});
+  // tables
+  const hard=[...qs].sort((a,b)=>a.avgPct-b.avgPct).slice(0,5);
+  const easy=[...qs].sort((a,b)=>b.avgPct-a.avgPct).slice(0,5);
+  const tbl=(title,arr)=>`<h3 style="margin-top:14px">${title}</h3><table><tr><th>Q</th><th>Competency</th><th>Type</th><th>Max</th><th>Avg %</th></tr>`+
+    arr.map(q=>`<tr><td>${q.question}</td><td>${q.competencyFull}</td><td>${q.questionType}</td><td>${q.maxMarks}</td><td>${q.avgPct.toFixed(1)}</td></tr>`).join("")+`</table>`;
+  document.getElementById("qtbl").innerHTML = tbl("Hardest 5",hard)+tbl("Easiest 5",easy);
+}
+
+// ==================================================
+// TAB: STUDENTS
+// ==================================================
+function renderStudents(pg){
+  if(!pg) pg=document.getElementById("pg-students");
+  const ranked=[...stuTotal].sort((a,b)=>b.totalPct-a.totalPct);
+  const n=topN();
+  const top=ranked.slice(0,n), bot=[...ranked].slice(-n).reverse();
+  // per-student competency pivot for tables
+  const comps=COMP_FULL_ORDER.filter(c=>stuComp.some(s=>s.competencyFull===c));
+  const trow=(s)=>{const cells=comps.map(c=>{const r=stuComp.find(x=>x.section===s.section&&x.studentId===s.studentId&&x.competencyFull===c);return r?r.scored.toFixed(0):0;});
+    return `<tr><td>${s.studentId}</td><td>${s.section}</td>${cells.map(c=>`<td>${c}</td>`).join("")}<td>${s.totalScored.toFixed(0)}</td><td>${s.totalPct.toFixed(1)}%</td></tr>`;};
+  const tblHead=`<tr><th>Student</th><th>Sec</th>${comps.map(c=>`<th>${c}</th>`).join("")}<th>Total</th><th>%</th></tr>`;
+
+  pg.innerHTML=`<div class="grid">
+    <div class="tabintro" style="grid-column:1/-1"><b>Student analysis.</b> One row per student: rank them, and list the top 10 / bottom 10.</div>
+    ${card("Student ranking (total %)",
+      "X-axis = rank (1 = best, N = worst), Y = their total % (0-100); coloured by section. Hover a bar to see the student id, section, and %. Example: bar 1 (blue) is the topper (hover shows 'Student 14 (Sec A): 83%'); bar N is the student who needs the most support. Read left-to-right = best-to-worst.",
+      chartDiv("s1"),true)}
+    ${card(`Top ${n} toppers`,
+      "Table: highest total % first, broken down by skill so you can see how each topper got there. Example: a topper with high Evaluate but low Analyze = their score leans on Evaluate.",
+      `<table>${tblHead}${top.map(trow).join("")}</table>`,true)}
+    ${card(`Bottom ${n} strugglers`,
+      "Table: lowest total % first, broken down by skill so you can see which skill each struggling student most needs help with. Example: a struggler with 0 in Analyze = focus Analyze support for them.",
+      `<table>${tblHead}${bot.map(trow).join("")}</table>`,true)}
+  </div>`;
+  // Student ranking: x-axis = rank (1..N), hover shows the actual student id, section, and %.
+  plot("s1",[{x:ranked.map((_,i)=>i+1),y:ranked.map(s=>s.totalPct),type:"bar",
+    marker:{color:ranked.map(s=>secColor(s.section))},
+    text:ranked.map(s=>`Student ${s.studentId} (Sec ${s.section}): ${s.totalPct.toFixed(1)}%`),
+    hovertemplate:"%{text}<extra></extra>"}],
+    {xaxis:{title:"Rank (best -> worst)",dtick:5},yaxis:{title:"Total %",range:[0,100]},showlegend:false});
+}
+
+// ==================================================
+// TAB: SECTIONS
+// ==================================================
+function renderSections(pg){
+  const secs=[...new Set(FILTERED.map(r=>r.section))].sort();
+  const comps=COMP_FULL_ORDER.filter(c=>stuComp.some(s=>s.competencyFull===c));
+  pg.innerHTML=`
+    <div class="tabintro"><b>Section comparison.</b> Side-by-side across sections (A / B / C / D...). Three views: which section leads overall, which skill each is strong/weak in, and pass rate.</div>
+    <div class="grid">
+      ${card("Average total % by section",
+        "One bar per section. X = section, Y = average total % (0-100). Example: tallest bar (say section D, 78%) = the best-performing section overall.",
+        chartDiv("se1"))}
+      ${card("Section x Competency avg %",
+        "Grouped bars: within each skill, one bar per section. Example: in Analyze, section A's bar is lowest = section A is weak in Analyze; highest = strong in Analyze.",
+        chartDiv("se2"))}
+      ${card("Pass rate by section",
+        `X = section, Y = % of students who reached the pass mark (${passMark()}%). Example: a short bar at section A (76%) = A has the most students below pass; focus support there.`,
+        chartDiv("se9"))}
+    </div>`;
+  const sAvg=secs.map(s=>stuTotal.filter(t=>t.section===s).reduce((a,x)=>a+x.totalPct,0)/(stuTotal.filter(t=>t.section===s).length||1));
+  plot("se1",[{x:secs,y:sAvg,type:"bar",marker:{color:secs.map(secColor)}}],{yaxis:{title:"Avg %",range:[0,100]},showlegend:false});
+  plot("se2",secs.map(s=>({x:comps,y:comps.map(c=>{const a=stuComp.filter(x=>x.section===s&&x.competencyFull===c);
+    return a.length?a.reduce((p,x)=>p+x.pct,0)/a.length:0;}),type:"bar",name:s,marker:{color:secColor(s)}})),{barmode:"group",yaxis:{title:"Avg %",range:[0,100]}});
+  const pr=secs.map(s=>{const a=stuTotal.filter(t=>t.section===s);return a.length?a.filter(t=>t.totalPct>passMark()).length/a.length*100:0;});
+  plot("se9",[{x:secs,y:pr,type:"bar",marker:{color:secs.map(secColor)}}],{yaxis:{title:"Pass %",range:[0,100]},showlegend:false});
+}
+
+// ==================================================
+// TAB: BANDS (need improvement / adequate / sufficient / excellent)
+// ==================================================
+function renderBands(pg){
+  const secs=[...new Set(stuTotal.map(s=>s.section))].sort();
+
+  // Compute band counts per section (from student totals) and overall.
+  const counts={}; let overall={};
+  BAND_ORDER.forEach(b=>overall[b]=0);
+  secs.forEach(s=>{
+    counts[s]={}; BAND_ORDER.forEach(b=>counts[s][b]=0);
+    stuTotal.filter(t=>t.section===s).forEach(t=>{ counts[s][t.band]++; overall[t.band]++; });
+  });
+  // Per section + band, the actual student IDs - so a teacher can act on names, not just counts.
+  const bandStudents={};
+  secs.forEach(s=>{ bandStudents[s]={}; BAND_ORDER.forEach(b=>bandStudents[s][b]=[]);
+    stuTotal.filter(t=>t.section===s).forEach(t=>bandStudents[s][t.band].push(s+"-"+t.studentId)); });
+
+  // Excel side-table band counts (cols 38-41) for verification, if present.
+  const hasExcelBands = Object.keys(BAND_SUMMARY).length>0;
+
+  pg.innerHTML=`
+    <div class="tabintro"><b>Performance bands.</b> The four bands you use in Excel - <i>Need Improvement</i>, <i>Adequate</i>, <i>Sufficient</i>, <i>Excellent</i> - based on each student's total %. Three views + a "which students?" table: how the class splits overall, how each section splits, a check vs your Excel counts, and exactly which students are in each band.</div>
+    <div class="grid">
+      ${card("Performance band distribution (overall)",
+        "Donut: share of all students in each band. Example: Need Improvement=48% (red) = nearly half the class needs support; Excellent=9% (blue) = a small strong top. Big red slice = many need help.",
+        chartDiv("b1"))}
+      ${card("Band counts by section (stacked)",
+        "Stacked bars: each section split into the four bands. Example: section A's bar mostly red (Need Improvement) = A has the most struggling students; mostly blue/green = a strong section.",
+        chartDiv("b2"))}
+      ${card("Excel band summary (cols 38-41)",
+        "Table: the band counts you already computed in the workbook, next to the dashboard's own counts - so you can confirm they match. Example: A NI=7 (Excel) vs 7 (computed) = exact match.",
+        chartDiv("b7tbl"),true)}
+      ${card("Which students are in each band",
+        "Each row = one section + band, listing the exact students in that band (with their total %). Example: section A Need Improvement = A-3 (25%), A-7 (8%) = students 3 and 7 are A's struggling students (focus support here); Excellent = A-14 (83%) = student 14 is A's topper.",
+        `<div id="blist"></div>`,true)}
+    </div>`;
+
+  // 1. Overall donut
+  plot("b1",[{values:BAND_ORDER.map(b=>overall[b]), labels:BAND_ORDER, type:"pie", hole:0.4,
+    marker:{colors:BAND_ORDER.map(b=>BAND_COLOR[b])}, textinfo:"label+percent"}],{showlegend:true});
+
+  // 2. Stacked by section
+  plot("b2",BAND_ORDER.map(b=>({x:secs, y:secs.map(s=>counts[s][b]), type:"bar", name:b,
+    marker:{color:BAND_COLOR[b]}})),{barmode:"stack",yaxis:{title:"Students"}});
+
+  // 3. Excel side-table band summary
+  let html=`<table><tr><th>Section</th><th>Band</th><th>% range</th><th>Marks range</th><th>Count (Excel)</th><th>Count (computed)</th></tr>`;
+  secs.forEach(s=>{
+    const ex=BAND_SUMMARY[s]||[];
+    ex.forEach((b,i)=>{
+      const comp=counts[s]?(counts[s][b.name]||0):0;
+      html+=`<tr><td>${s}</td><td style="color:${BAND_COLOR[b.name]||''}">${b.name}</td><td>${b.pctRange}</td><td>${b.marksRange}</td><td>${b.count}</td><td>${comp}</td></tr>`;
+    });
+  });
+  html+=`</table>`;
+  if(!hasExcelBands) html=`<p style="color:var(--muted);font-size:12px">No Excel band summary (cols 38-41) found in these sheets. Computed band counts are shown in the other charts above.</p>`;
+  document.getElementById("b7tbl").innerHTML=html;
+  // "Which students are in each band" table.
+  let brows=`<tr><th>Section</th><th>Band</th><th>Students (with total %)</th></tr>`;
+  secs.forEach(s=>{
+    BAND_ORDER.forEach(b=>{
+      const ids=bandStudents[s][b];
+      if(!ids.length) return;
+      brows+=`<tr><td>${s}</td><td style="color:${BAND_COLOR[b]}">${b}</td><td>${ids.map(id=>{
+        const sid=+id.split("-")[1]; const t=stuTotal.find(x=>x.section===s&&x.studentId===sid);
+        return `${id} (${t?t.totalPct.toFixed(0):"?"}%)`;
+      }).join(", ")}</td></tr>`;
+    });
+  });
+  document.getElementById("blist").innerHTML=`<table>${brows}</table>`;
+}
+
+// ==================================================
+// TAB: GENERATE SQL (gated on the metadata JSON)
+// ==================================================
+// This tab produces the INSERT statements that load the marks into the
+// software's `answer` table - built entirely in the browser as TEXT.
+//
+// IMPORTANT (security): the dashboard NEVER connects to MySQL. It only
+// generates SQL text, which the user copies or downloads and runs elsewhere.
+// No DB credentials ever reach the browser; no SQL is executed here.
+//
+// GATING: the tab only works after the user loads paper_<id>_meta.json,
+// which can ONLY be produced by someone with database access (via
+// `python script.py --export-meta`). Graph viewers never receive that
+// file, so they can never generate SQL - only your data operator can.
+//
+// The answer-fill logic mirrors script.py: MCQ -> correct/different option,
+// True/False -> correct/opposite, everything else -> NULL.
+// ==================================================
+
+// Escape a string as a MySQL single-quoted literal (for the generated .sql text).
+function sqlStr(v){
+  if(v==null) return "NULL";
+  return "'"+String(v).replace(/\\/g,"\\\\").replace(/'/g,"''")+"'";
+}
+
+// Wire the metadata file input once (the input lives inside the SQL tab).
+let _metaWired=false;
+function wireMetaInput(){
+  if(_metaWired) return;
+  _metaWired=true;
+  document.getElementById("metafile").addEventListener("change", async (e)=>{
+    const f=e.target.files[0]; if(!f) return;
+    try{
+      const arr=JSON.parse(await f.text());
+      // Accept both the rich bundle ({paperId,...,questions:[...]}) and a bare
+      // array of questions, for flexibility.
+      const bundle = Array.isArray(arr) ? {questions:arr} : arr;
+      META_BUNDLE = bundle;
+      document.getElementById("fname").textContent += "  (meta loaded)";
+    }catch(err){
+      alert("Could not parse metadata JSON: "+err.message);
+      META_BUNDLE=null;
+    }
+    if(ALL.length) render();
+    else if(curTab==="sql") showPage();
+  });
+}
+
+// Build the INSERT text for the selected sections. Returns {sql, total, sections}.
+// Marks come from the loaded Excel; qid/type/correctAns come from META_BUNDLE.
+function buildSQLText(selectedSections, overwrite){
+  const M=META_BUNDLE;
+  const qBySeq={}; M.questions.forEach(q=>qBySeq[q.sequence]=q);
+  const nq=M.questions.length;
+
+  // Group marks by section -> studentId -> {seq: marks}, only for selected sections.
+  const secSet = selectedSections && selectedSections.length
+     ? new Set(selectedSections) : new Set(ALL.map(r=>r.section));
+  const data={};
+  const seenRow = new Set();        // (section|studentId|seq) -> detect duplicate student+question
+  const excelSeqs = new Set();
+  ALL.forEach(r=>{
+    if(!secSet.has(r.section)) return;
+    excelSeqs.add(r.sequence);
+    if(!data[r.section]) data[r.section]={};
+    const rowKey=r.section+"|"+r.studentId+"|"+r.sequence;
+    if(seenRow.has(rowKey)) throw new Error("Duplicate marks for student "+r.studentId+" question Q"+r.sequence+" in section "+r.section+".");
+    seenRow.add(rowKey);
+    if(!data[r.section][r.studentId]) data[r.section][r.studentId]={};
+    data[r.section][r.studentId][r.sequence]=r.scored;
+  });
+
+  // Validate: every meta question must be present in the Excel, and vice versa.
+  const metaSeqs = new Set(M.questions.map(q=>q.sequence));
+  const missingInExcel = [...metaSeqs].filter(s=>!excelSeqs.has(s));
+  const missingInMeta  = [...excelSeqs].filter(s=>!metaSeqs.has(s));
+  if(missingInExcel.length) throw new Error("Excel is missing marks for question sequence(s) "+missingInExcel.join(", ")+" that the metadata expects.");
+  if(missingInMeta.length)  throw new Error("Excel has question sequence(s) "+missingInMeta.join(", ")+" that the metadata does not (no qid for them).");
+
+  const statements=[];
+  let total=0;
+  for(const sec of Object.keys(data)){
+    if(overwrite){
+      statements.push(`DELETE FROM answer WHERE paperid = ${M.paperId} AND section = '${sec}';`);
+    }
+    const students=data[sec];
+    const vals=[];
+    for(const sid of Object.keys(students)){
+      for(const q of M.questions){
+        const seq=q.sequence;
+        const marks=students[sid][seq]||0;
+        let uanswer="NULL", canswer="NULL";
+        if(OBJECTIVE_TYPES.has(q.quesType)){
+          const ca=(q.correctAns==null?"":String(q.correctAns)).trim();
+          if(ca==="") throw new Error(`Question ${q.qid} (sequence ${seq}) is ${q.quesType} but has no correctAns in the metadata.`);
+          if(marks>0){ uanswer=sqlStr(ca); canswer=sqlStr(ca); }
+          else if(MCQ_TYPES.has(q.quesType)){
+            const opts=["optA","optB","optC","optD"];
+            const diff=opts.find(o=>o.toLowerCase()!==ca.toLowerCase())||"optA";
+            uanswer=sqlStr(diff); canswer=sqlStr(ca);
+          } else if(TF_TYPES.has(q.quesType)){
+            const n=ca.toLowerCase();
+            if(n!=="true"&&n!=="false") throw new Error(`Question ${q.qid} (trueFalse) must have 'true'/'false' as correctAns.`);
+            uanswer=sqlStr(n==="false"?"true":"false"); canswer=sqlStr(ca);
+          } else { uanswer=sqlStr(ca); canswer=sqlStr(ca); }
+        }
+        vals.push(`(${M.paperId}, ${M.classId}, ${sqlStr(sec)}, ${sqlStr(sid)}, ${q.qid}, ${uanswer}, ${canswer}, NOW(), ${sqlStr(marks)}, ${seq}, ${sqlStr(M.dmlType)}, ${sqlStr(M.tenantId)})`);
+        total++;
+      }
+    }
+    statements.push(
+      `INSERT INTO answer (\n  paperid, class, section, studentid, qid,\n  uanswer, canswer, createdate, marks,\n  sequence, dmlType, tenantid\n) VALUES\n`
+      + vals.join(",\n") + ";");
+  }
+
+  const header =
+    "-- Generated by the Exam Analytics dashboard. NOT executed here - copy/download and run in your software.\n"
+    + `-- Paper ID: ${M.paperId}; Class: ${M.classId}\n`
+    + `-- Questions per student: ${nq}\n`
+    + `-- Total records: ${total}\n`
+    + "-- Objective questions (MCQ / True-False): answer fields filled by type-driven logic.\n"
+    + "-- Open-ended questions: uanswer and canswer are NULL.\n\n";
+  return {sql: header + statements.join("\n\n"), total, sections: Object.keys(data)};
+}
+
+function renderSQL(pg){
+  const haveExcel = ALL.length>0;
+  const haveMeta  = META_BUNDLE!=null;
+
+  // ---- Gated state: no metadata loaded ----
+  if(!haveMeta){
+    pg.innerHTML=`
+      <div class="tabintro"><b>Generate SQL.</b> Produce the INSERT statements that load your marks into the software's database - as text, right here in the browser. Nothing is executed; you copy or download the SQL and run it where your database lives.</div>
+      <div class="card full">
+        <h3>SQL generation is locked</h3>
+        <div class="cap">
+          This tab needs the <b>questions metadata file</b> (<code>paper_&lt;id&gt;_meta.json</code>).
+          That file can only be produced by someone <b>with database access</b>, so graph viewers
+          (who never get this file) can never generate SQL - only your data operator can.
+        </div>
+        <div class="helpbox" style="margin-top:14px">
+          <b>To unlock (person with DB access):</b><br/>
+          1. On the database machine run <code>python script.py --export-meta</code> - this writes <code>paper_&lt;id&gt;_meta.json</code>.<br/>
+          2. Share that JSON file with whoever should generate SQL.<br/>
+          3. Load it below. This tab unlocks instantly.
+        </div>
+        <label class="cta" for="metafile" style="margin-top:18px;cursor:pointer">
+          <span>Load metadata JSON</span>
+          <span class="hint">paper_&lt;id&gt;_meta.json</span>
+        </label>
+        <input type="file" id="metafile" accept=".json" />
+      </div>`;
+    wireMetaInput();
+    return;
+  }
+
+  // ---- Meta loaded but no Excel yet ----
+  if(!haveExcel){
+    pg.innerHTML=`
+      <div class="tabintro"><b>Generate SQL.</b> Metadata loaded - now load the marks workbook to build the INSERT statements.</div>
+      <div class="card full">
+        <h3>Metadata ready ✓</h3>
+        <div class="cap">The questions metadata for paper ${META_BUNDLE.paperId} is loaded (${META_BUNDLE.questions.length} questions). Now pick the Excel workbook (top-right) to generate the SQL for its students.</div>
+      </div>`;
+    return;
+  }
+
+  // ---- Both ready: show the generator ----
+  const secs=[...new Set(ALL.map(r=>r.section))].sort();
+  pg.innerHTML=`
+    <div class="tabintro"><b>Generate SQL.</b> Metadata for paper ${META_BUNDLE.paperId} is loaded. Pick the sections to include and click Generate. The SQL appears below - copy it or download a .sql file. Nothing is inserted into any database from this page.</div>
+    <div class="card full">
+      <h3>Options</h3>
+      <div class="cap">Choose which sections to include and whether to add DELETE statements (overwrite existing rows) before each INSERT.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:10px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${secs.map((s,i)=>`<label style="font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="sqlsec-${i}" value="${s}" checked> Section ${s}</label>`).join("")}
+        </div>
+        <label style="font-size:13px;display:flex;align-items:center;gap:8px;margin-left:18px"><input type="checkbox" id="sqloverwrite"> Add DELETE before each INSERT (overwrite existing rows)</label>
+        <button id="sqlgen" style="margin-left:auto;background:linear-gradient(135deg,#4c9aff,#6a5cff);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer">Generate SQL</button>
+      </div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <h3>Generated SQL</h3>
+      <div class="cap" id="sqlsummary">Click "Generate SQL" above.</div>
+      <textarea id="sqlout" style="width:100%;height:320px;margin-top:10px;background:#0b1020;color:#cfe0ff;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:Consolas,monospace;font-size:12px;resize:vertical" readonly placeholder="The INSERT statements will appear here..."></textarea>
+      <div style="display:flex;gap:10px;margin-top:10px">
+        <button id="sqlcopy" style="background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:9px 16px;font-size:13px;cursor:pointer">Copy</button>
+        <button id="sqldownload" style="background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:9px 16px;font-size:13px;cursor:pointer">Download .sql</button>
+      </div>
+    </div>`;
+
+  document.getElementById("sqlgen").onclick=()=>{
+    const sel=secs.filter((s,i)=>document.getElementById("sqlsec-"+i).checked);
+    const ow=document.getElementById("sqloverwrite").checked;
+    try{
+      const {sql,total,sections}=buildSQLText(sel,ow);
+      document.getElementById("sqlout").value=sql;
+      document.getElementById("sqlsummary").textContent=
+        `${total} records across ${sections.length} section(s)${ow?" (with DELETE/overwrite)":""}.`;
+    }catch(err){
+      document.getElementById("sqlout").value="";
+      document.getElementById("sqlsummary").textContent="Error: "+err.message;
+    }
+  };
+  document.getElementById("sqlcopy").onclick=()=>{
+    const t=document.getElementById("sqlout"); t.select();
+    navigator.clipboard.writeText(t.value).then(()=>{ document.getElementById("sqlsummary").textContent="Copied to clipboard. "+document.getElementById("sqlsummary").textContent; });
+  };
+  document.getElementById("sqldownload").onclick=()=>{
+    const sql=document.getElementById("sqlout").value;
+    if(!sql){ return; }
+    const blob=new Blob([sql],{type:"text/sql"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`paper_${META_BUNDLE.paperId}_answers.sql`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+}
+
+// ==================================================
+// (no standalone stats helpers needed - the niche Distributions tab was removed)
+// ==================================================
+</script>
+</body>
+</html>

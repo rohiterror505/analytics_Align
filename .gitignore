@@ -1,0 +1,18 @@
+# Sensitive data - never commit student marks or the answer-key bundle
+SCIENCE_ROHIT_8 (1) .xlsx
+paper_*_meta.json
+
+# Regenerable screenshots (already embedded in the .docx)
+ss/
+
+# Python
+__pycache__/
+*.pyc
+
+# Word temp/lock files
+~$*.docx
+
+# OS
+Thumbs.db
+.DS_Store
+Exam_Marks_Automation_and_Analytics.docx
