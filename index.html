@@ -804,13 +804,25 @@ function card(title,caption,html,full){
 }
 function chartDiv(id){ return `<div class="chart" id="${id}"></div>`; }
 function plot(id,data,layout,config){
-  Plotly.react(id,data,Object.assign({font:{color:"#e8ecf4",size:11},
+  const L = Object.assign({font:{color:"#e8ecf4",size:11},
     paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
-    margin:{l:50,r:20,t:20,b:40},
-    // Smooth animation whenever data changes (filters / tab switches) - makes charts feel interactive.
-    transition:{duration:800, easing:"cubic-in-out"}},
-    layout),
-    Object.assign({responsive:true, displaylogo:false}, config||{}));
+    margin:{l:50,r:20,t:20,b:40}}, layout);
+  const C = Object.assign({responsive:true, displaylogo:false}, config||{});
+  // "Rest" state: every numeric series (y / values) starts at 0, so when we
+  // animate to the real data the graph visibly RISES from the bottom upward
+  // like a moving chart. Histograms (x-based) get a fade-in instead.
+  const rest = data.map(tr => {
+    const c = Object.assign({}, tr);
+    if (Array.isArray(tr.y))      c.y      = tr.y.map(() => 0);
+    if (Array.isArray(tr.values)) c.values = tr.values.map(() => 0);
+    if (tr.type === "histogram")  c.opacity = 0;
+    return c;
+  });
+  Plotly.react(id, rest, L, C);
+  Plotly.animate(id,
+    { data: data, traces: data.map((_, i) => i) },
+    { transition: { duration: 1100, easing: "cubic-in-out" },
+      frame:     { duration: 1100, redraw: false } });
 }
 // compColor() picks a colour for a competency (pretty name); falls back to the
 // rotating palette for any competency not in the default map (so new codes work).
