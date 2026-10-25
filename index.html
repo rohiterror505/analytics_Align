@@ -434,7 +434,7 @@
       <div class="step">
         <div class="num">3</div>
         <h3>Read the tabs</h3>
-        <p>Nine tabs across the top — Overview, Competency, Questions, Students, Sections, Bands and more. Each graph explains itself.</p>
+        <p>Tabs across the top — Overview, Competency, Questions, Students, Student, Sections, Bands and more. Each graph explains itself.</p>
       </div>
     </div>
   </div>
@@ -486,7 +486,7 @@
 //             (Need Improvement / Adequate / Sufficient / Excellent)
 //   4. Each record gets derived fields: pct, competencyFull, difficulty, and a
 //      performance band (from the student's total %).
-//   5. buildSidebar() + buildTabs() create the filter controls and 9 tabs.
+//   5. buildSidebar() + buildTabs() create the filter controls and the tabs.
 //   6. render() applies the sidebar filters and calls the active tab's renderer,
 //      which draws all graphs with Plotly.
 //
@@ -556,10 +556,11 @@ let BAND_SUMMARY = {}; // section -> [{name, pctRange, marksRange, count}] from 
 let META_BUNDLE = null;  // loaded paper_<id>_meta.json (DB bundle) - gates SQL generation
 let TABS = [
   ["overview","Overview"], ["comp","Competency"], ["questions","Questions"],
-  ["students","Students"], ["sections","Sections"], ["bands","Bands"],
+  ["students","Students"], ["student","Student"], ["sections","Sections"], ["bands","Bands"],
   ["sql","Generate SQL"]
 ];
 let curTab = "overview";
+let selStudent = null;   // "section|studentId" - chosen student in the Student tab
 
 // ==================================================
 // FILE LOAD
@@ -857,7 +858,7 @@ function showPage(){
   void pg.offsetWidth;
   pg.classList.add("active");
   const fn = {overview:renderOverview, comp:renderComp, questions:renderQuestions,
-    students:renderStudents, sections:renderSections, bands:renderBands, sql:renderSQL};
+    students:renderStudents, student:renderStudent, sections:renderSections, bands:renderBands, sql:renderSQL};
   pg.innerHTML = "";
   fn[curTab](pg);
 }
@@ -1280,6 +1281,126 @@ function buildSQLText(selectedSections, overwrite){
     + "-- Objective questions (MCQ / True-False): answer fields filled by type-driven logic.\n"
     + "-- Open-ended questions: uanswer and canswer are NULL.\n\n";
   return {sql: header + statements.join("\n\n"), total, sections: Object.keys(data)};
+}
+
+// ==================================================
+// TAB: STUDENT (single-student deep dive)
+// ==================================================
+// Pick any student from a searchable dropdown and see their personal
+// breakdown: total / rank / band, each competency vs the class average,
+// marks per question vs max, and a per-question detail table.
+function renderStudent(pg){
+  const ranked=[...stuTotal].sort((a,b)=>b.totalPct-a.totalPct);
+  const opts = ranked.map((s,i)=>{
+    const k=s.section+"|"+s.studentId;
+    return `<option value="${k}" ${selStudent===k?'selected':''}>${s.section}-${s.studentId} — ${s.totalPct.toFixed(1)}% (rank ${i+1})</option>`;
+  }).join("");
+  pg.innerHTML=`
+    <div class="tabintro"><b>Student view.</b> Pick any student to see their personal breakdown — total, rank, band, how they did in each competency and each question, and how they compare to the class average.</div>
+    <div class="card full" style="margin-bottom:16px">
+      <h3>Choose a student</h3>
+      <div class="cap">Search by section-id (e.g. <b>A-14</b>) or by rank. The breakdown below updates instantly.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <input id="stuSearch" placeholder="Search: A-14 or 14 or rank 1"
+          style="flex:1;min-width:200px;max-width:340px;background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px" />
+        <select id="selStu"
+          style="flex:1;min-width:240px;max-width:440px;background:var(--panel2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px">
+          <option value="">— Select a student —</option>${opts}
+        </select>
+      </div>
+    </div>
+    <div id="stuView"></div>`;
+
+  const sel=document.getElementById("selStu");
+  const search=document.getElementById("stuSearch");
+  // Search filters the dropdown options (by text) as you type.
+  search.addEventListener("input",()=>{
+    const q=search.value.trim().toLowerCase();
+    [...sel.options].forEach(o=>{
+      if(!o.value) return;
+      o.hidden = q && !o.text.toLowerCase().includes(q);
+    });
+  });
+  sel.addEventListener("change",()=>{
+    selStudent = sel.value || null;
+    renderStudentView(document.getElementById("stuView"));
+  });
+  if(selStudent) renderStudentView(document.getElementById("stuView"));
+  else renderStudentView(document.getElementById("stuView"));
+}
+
+// Render the chosen student's KPIs + charts + table into #stuView.
+function renderStudentView(el){
+  if(!selStudent){
+    el.innerHTML=`<div class="card full"><div class="cap">Select a student above to see their breakdown.</div></div>`;
+    return;
+  }
+  const [sec, sidStr] = selStudent.split("|");
+  const sid = +sidStr;
+  const stu = stuTotal.find(s=>s.section===sec && s.studentId===sid);
+  if(!stu){
+    el.innerHTML=`<div class="card full"><div class="cap">That student isn't in the current filter. Adjust the sidebar filters (sections / competencies / types) to include them.</div></div>`;
+    return;
+  }
+  const ranked=[...stuTotal].sort((a,b)=>b.totalPct-a.totalPct);
+  const rank = ranked.findIndex(s=>s.section===sec && s.studentId===sid)+1;
+  const comps=COMP_FULL_ORDER.filter(c=>stuComp.some(s=>s.competencyFull===c));
+  const stuC=comps.map(c=>{
+    const r=stuComp.find(x=>x.section===sec&&x.studentId===sid&&x.competencyFull===c);
+    return r?{c, scored:r.scored, max:r.max, pct:r.pct}:null;
+  }).filter(Boolean);
+  const classAvg=comps.map(c=>{
+    const arr=stuComp.filter(x=>x.competencyFull===c);
+    return arr.length?arr.reduce((a,x)=>a+x.pct,0)/arr.length:0;
+  });
+  const qrows=[...qStats].sort((a,b)=>a.sequence-b.sequence);
+  const stuQ=qrows.map(q=>{
+    const r=FILTERED.find(x=>x.section===sec&&x.studentId===sid&&x.sequence===q.sequence);
+    return {q, scored:r?r.scored:0, max:q.maxMarks, pct:r?r.pct:0};
+  });
+
+  el.innerHTML=`
+    <div class="kpis">
+      <div class="kpi"><div class="v">${sec}-${sid}</div><div class="l">Student</div></div>
+      <div class="kpi"><div class="v">${stu.totalScored.toFixed(0)}/${stu.totalMax.toFixed(0)}</div><div class="l">Total marks</div></div>
+      <div class="kpi"><div class="v">${stu.totalPct.toFixed(1)}%</div><div class="l">Total %</div></div>
+      <div class="kpi"><div class="v" style="background:linear-gradient(90deg,#fff,${BAND_COLOR[stu.band]});-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">${stu.band}</div><div class="l">Band</div></div>
+      <div class="kpi"><div class="v">#${rank}</div><div class="l">Rank of ${stuTotal.length}</div></div>
+    </div>
+    <div class="grid">
+      ${card("Competency: this student vs class average",
+        "Grouped bars: for each skill, the student's % (blue) next to the class average % (grey). Short blue bar = below average in that skill; tall blue bar = stronger than the class.",
+        chartDiv("sv1"))}
+      ${card("Marks per question",
+        "One bar per question = this student's marks, coloured by competency, overlaid on a faint bar showing the max marks. Hover shows marks / max. Short bars = questions they missed.",
+        chartDiv("sv2"),true)}
+      ${card("Per-question detail",
+        "Every question with its competency, type, max marks, this student's marks and %.",
+        `<div id="svtbl"></div>`,true)}
+    </div>`;
+
+  // 1. competency: student vs class avg
+  plot("sv1",[
+    {x:comps, y:stuC.map(s=>s.pct), type:"bar", name:"This student", marker:{color:"#4c9aff"}},
+    {x:comps, y:classAvg, type:"bar", name:"Class average", marker:{color:"#8ea0c0"}}
+  ],{barmode:"group", yaxis:{title:"%",range:[0,100]}, showlegend:true});
+
+  // 2. per-question: scored overlaid on max
+  plot("sv2",[
+    {x:stuQ.map(q=>q.q.question), y:stuQ.map(q=>q.max), type:"bar", name:"Max marks",
+      marker:{color:"rgba(255,255,255,0.07)"}, hoverinfo:"skip"},
+    {x:stuQ.map(q=>q.q.question), y:stuQ.map(q=>q.scored), type:"bar", name:"Scored",
+      marker:{color:stuQ.map(q=>compColor(q.q.competencyFull))},
+      text:stuQ.map(q=>q.scored+"/"+q.max), hovertemplate:"%{x}: %{text}<extra></extra>"}
+  ],{barmode:"overlay", yaxis:{title:"Marks"}, showlegend:true});
+
+  // 3. per-question table
+  let t=`<table><tr><th>Q</th><th>Competency</th><th>Type</th><th>Max</th><th>Scored</th><th>%</th></tr>`;
+  stuQ.forEach(q=>{
+    t+=`<tr><td>${q.q.question}</td><td>${q.q.competencyFull}</td><td>${q.q.questionType}</td><td>${q.max}</td><td>${q.scored.toFixed(0)}</td><td>${q.pct.toFixed(0)}%</td></tr>`;
+  });
+  t+=`</table>`;
+  document.getElementById("svtbl").innerHTML=t;
 }
 
 function renderSQL(pg){
