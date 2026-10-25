@@ -38,9 +38,9 @@ STUDENT_SCAN_SAFETY_CAP = 500         # never scan more rows than this (sanity b
 # Override at run time:  python script.py --paper 90 --class 9
 # ==================================================
 
-DEFAULT_PAPER_ID = 76
-DEFAULT_CLASS_ID = 8
-TENANT_ID = "o0006p43O9m5k2050MFj02"  # multi-tenant id written to answer.tenantid
+DEFAULT_PAPER_ID = 76  # your exam paper id
+DEFAULT_CLASS_ID = 8   # your class id
+TENANT_ID = "YOUR_TENANT_ID"  # multi-tenant id written to answer.tenantid
 DML_TYPE = "I"                        # "I" = Insert marker used by the software
 
 # ==================================================
@@ -70,6 +70,6 @@ DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
     "port": int(os.getenv("DB_PORT", "3306")),
     "user": os.getenv("DB_USER", "admin"),
-    "password": os.getenv("DB_PASSWORD", "12qwasxz"),
-    "database": os.getenv("DB_NAME", "rohittest"),
+    "password": os.getenv("DB_PASSWORD", "YOUR_MYSQL_PASSWORD"),
+    "database": os.getenv("DB_NAME", "YOUR_MYSQL_DATABASE"),
 }
