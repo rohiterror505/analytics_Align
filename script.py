@@ -33,6 +33,8 @@ import argparse
 import json
 import math
 import re
+import tkinter as tk
+from tkinter import filedialog
 from pathlib import Path
 
 import openpyxl
@@ -91,12 +93,41 @@ def db_connect():
 
 def derive_section(sheet_name):
     """
-    Derive the section letter from a sheet name by taking its leading letters.
-        "A1" -> "A",  "B1" -> "B",  "SectionC" -> "SectionC",  "A" -> "A"
+    Use the full sheet name as the section value so every sheet is distinct.
+        "A1" -> "A1",  "B1" -> "B1",  "A2" -> "A2",  "SectionC" -> "SectionC"
     Override is possible via the --sections CLI flag.
     """
-    match = re.match(r"^[A-Za-z]+", sheet_name)
-    return match.group(0) if match else sheet_name
+    return sheet_name
+
+
+def pick_excel_file(default_name):
+    """
+    Resolve the Excel workbook path.
+
+    ALWAYS pops up a file-picker dialog so the user can choose any .xlsx /
+    .xls file from anywhere on their system - the workbook does not have to
+    live in the project folder. If a default file exists, the dialog opens
+    pointed at it for convenience. Returns a Path, or raises SystemExit if
+    the user cancels.
+    """
+    default_path = Path(default_name).resolve()
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    chosen = filedialog.askopenfilename(
+        title="Select the Excel workbook",
+        initialdir=str(default_path.parent) if default_path.parent.exists() else None,
+        initialfile=default_path.name if default_path.exists() else None,
+        filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],
+    )
+    root.destroy()
+
+    if not chosen:
+        raise SystemExit("No Excel file selected. Exiting.")
+
+    print(f"Selected: {chosen}")
+    return Path(chosen)
 
 
 # ==================================================
@@ -661,8 +692,9 @@ def main():
         )
     )
 
-    parser.add_argument("--excel", default="SCIENCE_ROHIT_8 (1) .xlsx",
-                        help="Excel workbook path")
+    parser.add_argument("--excel", default=None,
+                        help="Excel workbook path (if omitted, a file-picker "
+                             "dialog opens so you can choose any file)")
     parser.add_argument("--paper", type=int, default=DEFAULT_PAPER_ID,
                         help=f"Paper id (default {DEFAULT_PAPER_ID})")
     parser.add_argument("--class", dest="class_id", type=int, default=DEFAULT_CLASS_ID,
@@ -688,10 +720,18 @@ def main():
 
     args = parser.parse_args()
 
-    excel_path = Path(args.excel)
+    # Resolve the Excel path.
+    #   - If --excel was explicitly passed, use that path directly.
+    #   - Otherwise ALWAYS open the file-picker dialog so the user can pick
+    #     the workbook from anywhere (it does not have to be in the project
+    #     folder). This guarantees the chosen file is the one that gets run.
+    if args.excel is not None:
+        excel_path = Path(args.excel)
+    else:
+        excel_path = pick_excel_file("SCIENCE_ROHIT_8 (1) .xlsx")
     section_override = parse_section_override(args.sections)
 
-    # Validate the Excel file up front with a clear message (don't crash raw).
+    # Final sanity check with a clear message (don't crash raw).
     if not excel_path.exists():
         raise SystemExit(f"Excel file not found: {excel_path.resolve()}")
 
@@ -712,7 +752,6 @@ def main():
     wb = openpyxl.load_workbook(excel_path, data_only=True, read_only=True)
     try:
         detected = detect_template_sheets(wb)
-        default_sheets = pick_one_sheet_per_section(wb)
     finally:
         wb.close()
 
@@ -721,9 +760,9 @@ def main():
     elif args.sheets:
         sheets = [s.strip() for s in args.sheets.split(",")]
     elif args.all or (not args.sheet and not args.sheets):
-        sheets = default_sheets  # default: one sheet per section (A1/B1/C1/D1)
+        sheets = detected  # default: ALL detected template sheets (A1/B1/C1/D1/A2/B2/...)
     else:
-        sheets = default_sheets
+        sheets = detected
 
     # Validate chosen sheets exist and are template sheets.
     unknown = [s for s in sheets if s not in detected]

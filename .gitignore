@@ -1,12 +1,14 @@
 # Sensitive data - never commit student marks, answer-key bundle, or DB credentials
 SCIENCE_ROHIT_8 (1) .xlsx
 paper_*_meta.json
-config.py            # real credentials - keep local, use config.example.py as a template
+config.py
+# real credentials live in config.py - keep local, use config.example.py as a template
 
 # Internal write-ups / comms (kept local, not hosted)
 *.docx
 Message_for_Leadership.md
 Team_Message.md
+team_update.md
 
 # Regenerable screenshots (already embedded in the .docx)
 ss/

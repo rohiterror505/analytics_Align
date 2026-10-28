@@ -560,9 +560,10 @@ let COMP_ORDER = [];        // e.g. ["R","U","Ap","An","Ev"] - whatever row 1 co
 let COMP_FULL_ORDER = [];   // pretty names in the same order
 let SECTIONS_LIST = [];     // e.g. ["A","B","C","D"] - whatever sheets were detected
 
-// Derive the section letter from a sheet name (leading letters).
-// "A1"->"A", "B1"->"B", "SectionC"->"SectionC". Override is via the script's --sections.
-function deriveSection(name){ const m = String(name).match(/^[A-Za-z]+/); return m?m[0]:name; }
+// Use the full sheet name as the section value so every sheet is distinct.
+// "A1"->"A1", "B1"->"B1", "A2"->"A2", "SectionC"->"SectionC".
+// This way no sheet is ever missed or merged into another.
+function deriveSection(name){ return String(name); }
 
 // Difficulty tier from max marks (1=Low, 2-3=Medium, >=4=High).
 function difficulty(maxMarks){ const m=Number(maxMarks); return m<=1?"Low": m<=3?"Medium":"High"; }
@@ -621,34 +622,11 @@ function detectSheets(wb){
   });
 }
 
-// Pick ONE sheet per section (the one with the most students; first on tie).
-// A workbook may have A, A1, A2 all -> section "A". Loading all of them would
-// double-count students. This picks the "full" sheet (A1/B1/C1/D1) over
-// subset/working sheets, so each section is counted exactly once.
+// Load EVERY detected template sheet - no sheet is skipped.
+// Each sheet becomes its own section (full sheet name), so A1 and A2 are
+// distinct sections and neither is dropped.
 function pickOneSheetPerSection(wb){
-  const all = detectSheets(wb);
-  // Group sheet names by their derived section letter.
-  const bySec = {};
-  all.forEach(name=>{const sec=deriveSection(name); (bySec[sec]=bySec[sec]||[]).push(name);});
-  const picked = [];
-  for(const sec in bySec){
-    const names = bySec[sec];
-    if(names.length===1){ picked.push(names[0]); continue; }
-    // Count students (non-empty col A from row 3) per sheet; pick the most.
-    let best=null, bestCount=-1;
-    for(const name of names){
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:null});
-      let count=0;
-      for(let r=2; r<rows.length; r++){ const sid=rows[r]?rows[r][0]:null; if(sid==null||sid==='') break; count++; }
-      if(count>bestCount){ best=name; bestCount=count; }  // strict > keeps first on tie
-    }
-    picked.push(best);
-  }
-  // Return in workbook order.
-  const order = {};
-  all.forEach((n,i)=>order[n]=i);
-  picked.sort((a,b)=>(order[a]??999)-(order[b]??999));
-  return picked;
+  return detectSheets(wb);
 }
 
 // Load a workbook from an ArrayBuffer (shared by the file picker and the ?file= auto-load).
@@ -657,7 +635,7 @@ async function loadWorkbook(buf, name){
   const wb = XLSX.read(buf, {type:"array"});
 
   // Auto-detect which sheets follow the template (any names, any count),
-  // then pick ONE sheet per section so students are never double-counted.
+  // then load EVERY one - no sheet is skipped. Each sheet is its own section.
   const sheets = pickOneSheetPerSection(wb);
   if (!sheets.length) { alert("No template sheets found (A1 must be 'competency', A2 'Students')."); return; }
 
